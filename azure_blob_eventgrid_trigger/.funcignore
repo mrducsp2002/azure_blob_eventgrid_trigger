@@ -1,0 +1,14 @@
+.git*
+.vscode
+__azurite_db*__.json
+__blobstorage__
+__queuestorage__
+local.settings.json
+test
+.venv
+local_testing
+question_generation.py
+.env
+comp2010_assignment2_s22025.zip
+sas_token_gen_test.py
+retrieve.py

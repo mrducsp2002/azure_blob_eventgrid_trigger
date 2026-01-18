@@ -1,0 +1,8 @@
+azure-functions
+pymongo
+azure-ai-formrecognizer         
+python-docx
+requests
+openai
+dnspython
+azure-storage-blob
