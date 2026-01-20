@@ -17,9 +17,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./azure_blob_eventgrid_trigger
     permissions:
       contents: read #This is required for actions/checkout
 
@@ -50,7 +47,7 @@ jobs:
         with:
           name: python-app
           path: |
-            azure_blob_eventgrid_trigger/release.zip
+            release.zip
             !venv/
 
   deploy:
@@ -85,5 +82,4 @@ jobs:
           app-name: 'document-processing'
           slot-name: 'Production'
           package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-
           
