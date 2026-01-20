@@ -57,3 +57,15 @@ def store_document(collection, metadata: dict, content: str, source_blob: str):
         logging.info(f"Stored for: {doc_id}")
     except Exception as e:
         logging.error(f"Database error for {doc_id}: {e}")
+
+
+def get_student_assignment(student_id: str, unit_code: str, session_year: str, assignment: str):
+    db = get_mongo_db()
+    return db["iviva-student-assignments"].find_one(
+        {
+            "student_id": student_id,
+            "unit_code": unit_code,
+            "session_year": session_year,
+            "assignment": assignment,
+        }
+    )
