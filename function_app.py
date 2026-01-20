@@ -17,45 +17,8 @@ app = func.FunctionApp()
 @app.route(route="generate_iviva_questions", auth_level=func.AuthLevel.FUNCTION)
 def generate_iviva_question(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('HTTP Trigger: Processing IVIVA Question Generation.')
-    
-    try: 
-        req_body = req.get_json()
-        current_question = req_body.get('current_question')
-        user_comment = req_body.get('user_comment')
-        
-    except ValueError:
-        return func.HttpResponse(
-            "Invalid request body. Please provide JSON with current_question and user_comment.",
-            status_code=400
-        )
-    if not all ([current_question, user_comment]):
-        return func.HttpResponse(
-            "Missing required parameters. Please provide current_question and user_comment.",
-            status_code=400
-        )
 
-    # Generate questions logic 
     try:
-        question_generated = regenerate_questions_logic(current_question, user_comment)
-        return func.HttpResponse(
-            json.dumps(question_generated),
-            mimetype="application/json",
-            status_code=200
-        )
-        
-    except ValueError as ve: 
-        return func.HttpResponse(str(ve), status_code=404)
-    
-    except Exception as e:
-        # Handle unexpected crashes
-        logging.error(f"Internal Error: {e}")
-        return func.HttpResponse(f"Error regenerating questions: {str(e)}", status_code=500)
-
-@app.route(route="iviva_question_regeneration", auth_level=func.AuthLevel.FUNCTION)
-def regenerate_iviva_question(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info('HTTP Trigger: Processing IVIVA Question Regeneration.')
-    
-    try: 
         req_body = req.get_json()
         student_id = req_body.get('student_id')
         unit_code = req_body.get('unit_code')
@@ -66,24 +29,63 @@ def regenerate_iviva_question(req: func.HttpRequest) -> func.HttpResponse:
             "Invalid request body. Please provide JSON with student_id, unit_code, session_year, assignment.",
             status_code=400
         )
-    if not all ([student_id, unit_code, session_year, assignment]):
+    if not all([student_id, unit_code, session_year, assignment]):
         return func.HttpResponse(
             "Missing required parameters. Please provide student_id, unit_code, session_year, assignment.",
             status_code=400
         )
 
-    # Regenerate questions logic 
+    # Generate questions logic
     try:
-        question_generated = generate_questions_logic(student_id, unit_code, session_year, assignment, regenerate=True)
+        question_generated = generate_questions_logic(
+            student_id, unit_code, session_year, assignment)
         return func.HttpResponse(
             json.dumps(question_generated),
             mimetype="application/json",
             status_code=200
         )
-        
-    except ValueError as ve: 
+
+    except ValueError as ve:
         return func.HttpResponse(str(ve), status_code=404)
-    
+
+    except Exception as e:
+        # Handle unexpected crashes
+        logging.error(f"Internal Error: {e}")
+        return func.HttpResponse(f"Error generating questions: {str(e)}", status_code=500)
+
+@app.route(route="iviva_question_regeneration", auth_level=func.AuthLevel.FUNCTION)
+def regenerate_iviva_question(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info('HTTP Trigger: Processing IVIVA Question Regeneration.')
+
+    try:
+        req_body = req.get_json()
+        current_question = req_body.get('current_question')
+        user_comment = req_body.get('user_comment')
+
+    except ValueError:
+        return func.HttpResponse(
+            "Invalid request body. Please provide JSON with current_question and user_comment.",
+            status_code=400
+        )
+    if not all([current_question, user_comment]):
+        return func.HttpResponse(
+            "Missing required parameters. Please provide current_question and user_comment.",
+            status_code=400
+        )
+
+    # Regenerate questions logic
+    try:
+        question_regenerated = regenerate_questions_logic(
+            current_question, user_comment)
+        return func.HttpResponse(
+            json.dumps(question_regenerated),
+            mimetype="application/json",
+            status_code=200
+        )
+
+    except ValueError as ve:
+        return func.HttpResponse(str(ve), status_code=404)
+
     except Exception as e:
         # Handle unexpected crashes
         logging.error(f"Internal Error: {e}")
