@@ -22,3 +22,5 @@ cursor = collection.find({}).limit(10)
 print(f"--- Showing first 10 docs from {collection.name} ---")
 for doc in cursor:
     pprint(doc)  # pprint makes nested JSON/Dicts readable
+
+# The end
