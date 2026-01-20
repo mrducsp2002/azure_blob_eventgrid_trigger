@@ -61,7 +61,7 @@ def generate_questions_logic(student_id, unit_code, session, assignment):
         - **Context-Specific:** Ensure each question relates directly to the student's submitted assignment.
         - **Seed Alignment:** Use the provided seed questions as inspiration.
         - **Quantity:** Generate exactly the same number of questions as provided in the seed input.
-        - **Tone:** Use simple to intermediate spoken language suitable for a verbal assessment.
+        - **Tone:** Use intermediate spoken language suitable for a verbal assessment.
 
         # Steps
         1. Analyze the seed questions for style and scope.
@@ -91,6 +91,48 @@ def generate_questions_logic(student_id, unit_code, session, assignment):
                 Topic 1: Game Logic and Mechanics
                 Topic 2: Use of Variables and Randomisation
                 Topic 3: User Interaction and Controls
+            """}
+        ]
+    )
+
+    # Return the parsed JSON object directly
+    return json.loads(response.choices[0].message.content)
+
+def regenerate_questions_logic(current_question, user_comment):
+    """
+    Regenerates questions based on user feedback.
+    Returns: A dictionary (JSON) of regenerated questions or Raises an Exception.
+    """
+    # 3. Call AI
+    system_prompt = f"""
+        You are an expert academic examiner. The user has read the question and make some comments to refine the questions.
+        Regenerate the question based on user feedback.
+
+        # Guidelines
+        - **Incorporate Feedback:** Modify the current question based on the user's comment.
+        - **Clarity and Relevance:** Ensure the regenerated question is clear and relevant to the assignment context.
+        - **Tone:** Use intermediate spoken language suitable for a verbal assessment.
+
+        # Output Format
+        Return ONLY raw JSON.
+
+        {{
+        "regenerated_question": "Regenerated Question",
+        "explanation": "Explanation of changes made"
+        }}
+        """
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"""
+                CURRENT QUESTION:
+                {current_question}
+
+                USER COMMENT:
+                {user_comment}
             """}
         ]
     )
