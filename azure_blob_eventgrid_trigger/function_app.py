@@ -5,7 +5,7 @@ import azure.functions as func
 from src.database import get_mongo_db
 from src.processor import process_blob_stream
 from src.generator import generate_questions_logic
-from src.viva import handle_viva_message, start_viva_session
+from azure_blob_eventgrid_trigger.src.practice import handle_viva_message, start_viva_session
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
 from datetime import datetime, timedelta, timezone
 
