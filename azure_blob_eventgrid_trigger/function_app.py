@@ -5,6 +5,7 @@ import azure.functions as func
 from src.database import get_mongo_db
 from src.processor import process_blob_stream
 from src.generator import generate_questions_logic
+from azure_blob_eventgrid_trigger.src.practice import handle_viva_message, start_viva_session
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
 from datetime import datetime, timedelta, timezone
 
@@ -50,7 +51,61 @@ def generate_iviva_question(req: func.HttpRequest) -> func.HttpResponse:
         # Handle unexpected crashes
         logging.error(f"Internal Error: {e}")
         return func.HttpResponse(f"Error generating questions: {str(e)}", status_code=500)
-    
+
+# ==========================================
+#  1B. HTTP API: Viva Chat Sessions
+# ==========================================
+@app.route(route="viva", auth_level=func.AuthLevel.FUNCTION)
+def viva_start(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("HTTP Trigger: Starting Viva Session.")
+    try:
+        payload = req.get_json()
+    except ValueError:
+        return func.HttpResponse(
+            "Invalid request body. Please provide JSON with student_id, unit_code, session_year, assignment.",
+            status_code=400,
+        )
+
+    try:
+        response_body = start_viva_session(payload)
+        return func.HttpResponse(
+            json.dumps(response_body),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except ValueError as ve:
+        return func.HttpResponse(str(ve), status_code=400)
+    except Exception as e:
+        logging.error(f"Internal Error: {e}")
+        return func.HttpResponse(f"Error starting viva: {str(e)}", status_code=500)
+
+
+@app.route(route="viva/message", auth_level=func.AuthLevel.FUNCTION)
+def viva_message(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("HTTP Trigger: Viva Session Message.")
+    try:
+        payload = req.get_json()
+    except ValueError:
+        return func.HttpResponse(
+            "Invalid request body. Please provide JSON with session_id and user_message.",
+            status_code=400,
+        )
+
+    try:
+        response_body = handle_viva_message(payload)
+        return func.HttpResponse(
+            json.dumps(response_body),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except KeyError as ke:
+        return func.HttpResponse(str(ke), status_code=404)
+    except ValueError as ve:
+        return func.HttpResponse(str(ve), status_code=400)
+    except Exception as e:
+        logging.error(f"Internal Error: {e}")
+        return func.HttpResponse(f"Error processing message: {str(e)}", status_code=500)
+
         
 # ==========================================
 #  2. Blob Trigger: Document Uploads

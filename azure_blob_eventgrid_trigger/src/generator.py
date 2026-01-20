@@ -2,7 +2,7 @@ import logging
 import json
 import os
 from openai import AzureOpenAI
-from src.database import get_mongo_db
+from src.database import get_student_assignment
 
 # Initialize OpenAI 
 client = AzureOpenAI(
@@ -16,16 +16,14 @@ def generate_questions_logic(student_id, unit_code, session, assignment):
     Orchestrates the data fetching and AI generation.
     Returns: A dictionary (JSON) of questions or Raises an Exception.
     """
-    db = get_mongo_db()
-    
     # 1. Fetch Document
     docs = {
-        "Student Assignment": db["iviva-student-assignments"].find_one({
-            "student_id": student_id,
-            "unit_code": unit_code,
-            "session_year": session,
-            "assignment": assignment
-        })
+        "Student Assignment": get_student_assignment(
+            student_id=student_id,
+            unit_code=unit_code,
+            session_year=session,
+            assignment=assignment,
+        )
         # "Assessment Brief": db["iviva-staff-assessment-brief"].find_one({
         #     "unit_code": unit_code,
         #     "session_year": session,
