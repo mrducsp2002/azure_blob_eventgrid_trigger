@@ -210,6 +210,16 @@ def rubric_upload(myblob: func.InputStream):
     _handle_blob_event(
         myblob, target_collection_name="iviva-staff-assessment-rubrics")
 
+# Upload seed questions
+@app.function_name(name="SeedQuestionsUpload")
+@app.blob_trigger(arg_name="myblob", 
+                  path="iviva-staff-seed-questions/{name}", 
+                  source="EventGrid",
+                  connection="AzureWebJobsStorage")
+def seed_questions_upload(myblob: func.InputStream):
+    _handle_blob_event(
+        myblob, target_collection_name="iviva-staff-seed-questions")
+
 
 # ==========================================
 #  3. SAS token generation for secure uploads
@@ -240,7 +250,8 @@ def generate_sas_token(req: func.HttpRequest) -> func.HttpResponse:
     if container_name not in [
         "iviva-student-assignments", 
         "iviva-staff-assessment-brief", 
-        "iviva-staff-assessment-rubrics"
+        "iviva-staff-assessment-rubrics",
+        "iviva-staff-seed-questions"
         ]:
         return func.HttpResponse(
             "Unallowed container.",
