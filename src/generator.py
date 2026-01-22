@@ -1,8 +1,9 @@
 import logging
 import json
 import os
+import re
 from openai import AzureOpenAI
-from src.database import get_student_assignment
+from src.database import get_student_assignment, get_staff_document
 
 # Initialize OpenAI 
 client = AzureOpenAI(
@@ -23,35 +24,42 @@ def generate_questions_logic(student_id, unit_code, session, assignment):
             unit_code=unit_code,
             session_year=session,
             assignment=assignment,
-        )
-        # "Assessment Brief": db["iviva-staff-assessment-brief"].find_one({
-        #     "unit_code": unit_code,
-        #     "session_year": session,
-        #     "assignment": assignment
-        # }),
-        # "Rubric": db["iviva-staff-assessment-rubrics"].find_one({
-        #     "unit_code": unit_code,
-        #     "session_year": session,
-        #     "assignment": assignment
-        # }),
-        # "Seed Questions": db["iviva-staff-seed-questions"].find_one({
-        #     "unit_code": unit_code,
-        #     "session_year": session,
-        #     "assignment": assignment
-        # })
+        ),
+        "Assessment Brief": get_staff_document(
+            collection_name="iviva-staff-assessment-brief",
+            unit_code=unit_code,
+            session_year=session,
+            assignment=assignment,
+        ),
+        "Assessment Rubric": get_staff_document(
+            collection_name="iviva-staff-assessment-rubrics",
+            unit_code=unit_code,
+            session_year=session,
+            assignment=assignment,
+        ),
+        "Seed Questions": get_staff_document(
+            collection_name="iviva-staff-seed-questions",
+            unit_code=unit_code,
+            session_year=session,
+            assignment=assignment,
+        ),
     }
 
-    # # Check if all documents are present
-    # missing = [name for name, doc in docs.items() if not doc]
+    # 2. Check required documents
+    missing = [name for name, doc in docs.items() if not doc]
 
-    # if missing:
-    #     raise ValueError(f"Missing required documents: {', '.join(missing)}")
+    if missing:
+        raise ValueError(f"Missing required documents: {', '.join(missing)}")
 
-    # # 3. Extract Content
+    # 3. Extract Content
     assignment_text = docs["Student Assignment"].get("content", "")
-    # brief_text = docs["Assessment Brief"].get("content", "")
-    # rubric_text = docs["Rubric"].get("content", "")
-    # seed_text = docs["Seed Questions"].get("content", "")
+    brief_text = docs["Assessment Brief"].get("content", "")
+    rubric_text = docs["Assessment Rubric"].get("content", "")
+    seed_text = docs["Seed Questions"].get("content", "")
+
+    seed_questions = _parse_seed_questions(seed_text)
+    if not seed_questions:
+        raise ValueError("Seed questions document is empty.")
 
     # 3. Call AI
     system_prompt = f"""
@@ -86,17 +94,33 @@ def generate_questions_logic(student_id, unit_code, session, assignment):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"""
                 CONTEXT:
+                Assessment brief: {brief_text}
+                Assessment rubric: {rubric_text}
                 Assignment: {assignment_text}
-                Seed questions: 
-                Topic 1: Game Logic and Mechanics
-                Topic 2: Use of Variables and Randomisation
-                Topic 3: User Interaction and Controls
+                Seed questions:
+                {format_seed_questions(seed_questions)}
             """}
         ]
     )
 
     # Return the parsed JSON object directly
     return json.loads(response.choices[0].message.content)
+
+
+def _parse_seed_questions(seed_text: str) -> list:
+    lines = [line.strip() for line in seed_text.splitlines()]
+    questions = []
+    for line in lines:
+        if not line:
+            continue
+        cleaned = re.sub(r"^\s*\d+[\).\s-]+", "", line).strip()
+        if cleaned:
+            questions.append(cleaned)
+    return questions
+
+
+def format_seed_questions(seed_questions: list) -> str:
+    return "\n".join([f"{idx + 1}. {question}" for idx, question in enumerate(seed_questions)])
 
 def regenerate_questions_logic(current_question, user_comment):
     """

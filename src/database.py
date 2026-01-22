@@ -69,3 +69,14 @@ def get_student_assignment(student_id: str, unit_code: str, session_year: str, a
             "assignment": assignment,
         }
     )
+
+
+def get_staff_document(collection_name: str, unit_code: str, session_year: str, assignment: str):
+    db = get_mongo_db()
+    return db[collection_name].find_one(
+        {
+            "unit_code": unit_code,
+            "session_year": session_year,
+            "assignment": assignment,
+        }
+    )
