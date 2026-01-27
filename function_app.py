@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import azure.functions as func
-from src.database import get_mongo_db
+from src.database import get_mongo_db, store_document
 from src.processor import process_blob_stream
 from src.generator import generate_questions_logic, regenerate_questions_logic
 from src.practice import handle_viva_message, start_viva_session
@@ -147,6 +147,70 @@ def viva_message(req: func.HttpRequest) -> func.HttpResponse:
 
         
 # ==========================================
+#  1C. HTTP API: Seed Questions Upload
+# ==========================================
+@app.route(route="seed_questions_upload", auth_level=func.AuthLevel.FUNCTION)
+def upload_seed_questions(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("HTTP Trigger: Uploading Seed Questions.")
+
+    try:
+        req_body = req.get_json()
+    except ValueError:
+        return func.HttpResponse(
+            "Invalid request body. Provide JSON with unit_code, assignment, session_year, seed_questions.",
+            status_code=400,
+        )
+
+    unit_code = req_body.get("unit_code") or req_body.get("unitCode")
+    assignment = req_body.get("assignment")
+    session_year = req_body.get("session_year") or req_body.get("sessionYear")
+    seed_questions = req_body.get("seed_questions") or req_body.get("seedQuestions")
+
+    if not all([unit_code, assignment, session_year, seed_questions]):
+        return func.HttpResponse(
+            "Missing required parameters. Provide unit_code, assignment, session_year, seed_questions.",
+            status_code=400,
+        )
+
+    if not isinstance(seed_questions, list):
+        return func.HttpResponse(
+            "seed_questions must be a list of strings.",
+            status_code=400,
+        )
+
+    cleaned_questions = [str(q).strip() for q in seed_questions if str(q).strip()]
+    if not cleaned_questions:
+        return func.HttpResponse(
+            "seed_questions cannot be empty.",
+            status_code=400,
+        )
+
+    content = "\n".join(
+        [f"{idx + 1}. {question}" for idx, question in enumerate(cleaned_questions)]
+    )
+    metadata = {
+        "unit_code": unit_code,
+        "assignment": assignment,
+        "session_year": session_year,
+    }
+
+    try:
+        db = get_mongo_db()
+        collection = db["iviva-staff-seed-questions"]
+        store_document(collection, metadata, content, source_blob="SeedQuestionsUpload")
+        return func.HttpResponse(
+            json.dumps({"status": "ok"}),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logging.error(f"Error uploading seed questions: {e}")
+        return func.HttpResponse(
+            "Error uploading seed questions.",
+            status_code=500,
+        )
+
+# ==========================================
 #  2. Blob Trigger: Document Uploads
 # ==========================================
 
@@ -210,15 +274,6 @@ def rubric_upload(myblob: func.InputStream):
     _handle_blob_event(
         myblob, target_collection_name="iviva-staff-assessment-rubrics")
 
-# Upload seed questions
-@app.function_name(name="SeedQuestionsUpload")
-@app.blob_trigger(arg_name="myblob", 
-                  path="iviva-staff-seed-questions/{name}", 
-                  source="EventGrid",
-                  connection="AzureWebJobsStorage")
-def seed_questions_upload(myblob: func.InputStream):
-    _handle_blob_event(
-        myblob, target_collection_name="iviva-staff-seed-questions")
 
 
 # ==========================================
