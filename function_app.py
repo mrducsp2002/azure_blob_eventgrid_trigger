@@ -396,11 +396,11 @@ def rubric_upload(myblob: func.InputStream):
     connection="AzureWebJobsStorage",
 )
 def question_generation_queue(msg: func.QueueMessage):
-    logging.info("Queue trigger: received question generation message.")
+    logging.info("Queue Trigger: Processing Question Generation Job.")
     raw_body = msg.get_body().decode("utf-8")
     logging.info(f"Queue trigger payload: {raw_body}")
     try:
-        payload = json.loads(raw_body)
+        payload = json.loads(msg.get_body().decode("utf-8"))
     except Exception as e:
         logging.error(f"Invalid queue payload: {e}")
         return
@@ -421,9 +421,6 @@ def question_generation_queue(msg: func.QueueMessage):
         return
 
     try:
-        logging.info(
-            f"Generating questions for {student_id}_{unit_code}_{assignment}_{session_year}."
-        )
         result = generate_questions_logic(
             student_id=student_id,
             unit_code=unit_code,
@@ -445,9 +442,6 @@ def question_generation_queue(msg: func.QueueMessage):
             },
             questions,
             reference,
-        )
-        logging.info(
-            f"Stored generated questions for {student_id}_{unit_code}_{assignment}_{session_year}."
         )
     except ValueError as ve:
         logging.error(f"Question generation failed: {ve}")
