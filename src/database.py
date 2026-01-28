@@ -119,7 +119,7 @@ def store_generated_questions(collection, metadata: dict, questions: list, refer
 def has_generated_questions(student_id: str, unit_code: str, assignment: str, session_year: str) -> bool:
     db = get_mongo_db()
     doc_id = f"{student_id}_{unit_code}_{assignment}_{session_year}"
-    return db["iviva-generated-questions"].find_one({"_id": doc_id}) is not None
+    return db["iviva-staff-generated-questions"].find_one({"_id": doc_id}) is not None
 
 
 def get_staff_document(collection_name: str, unit_code: str, session_year: str, assignment: str):
