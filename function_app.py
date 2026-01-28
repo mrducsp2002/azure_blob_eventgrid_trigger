@@ -149,7 +149,7 @@ def viva_message(req: func.HttpRequest) -> func.HttpResponse:
 # ==========================================
 #  1C. HTTP API: Seed Questions Upload
 # ==========================================
-@app.route(route="seed_questions_upload", auth_level=func.AuthLevel.FUNCTION)
+@app.route(route="upload_seed_questions", auth_level=func.AuthLevel.FUNCTION)
 def upload_seed_questions(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("HTTP Trigger: Uploading Seed Questions.")
 
@@ -351,3 +351,4 @@ def generate_sas_token(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500
         )
     
+
