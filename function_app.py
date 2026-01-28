@@ -428,7 +428,7 @@ def question_generation_queue(msg: func.QueueMessage):
         reference = result.get("reference", [])
 
         db = get_mongo_db()
-        collection = db["iviva-generated-questions"]
+        collection = db["iviva-staff-generated-questions"]
         store_generated_questions(
             collection,
             {
