@@ -71,6 +71,57 @@ def get_student_assignment(student_id: str, unit_code: str, session_year: str, a
     )
 
 
+def get_student_assignments(unit_code: str, session_year: str, assignment: str):
+    db = get_mongo_db()
+    return db["iviva-student-assignments"].find(
+        {
+            "unit_code": unit_code,
+            "session_year": session_year,
+            "assignment": assignment,
+        },
+        {"student_id": 1},
+    )
+
+
+def store_generated_questions(collection, metadata: dict, questions: list, reference: list):
+    """
+    Upserts generated questions for a student.
+
+    Expected metadata:
+    - unit_code
+    - assignment
+    - session_year
+    - student_id
+    """
+    document = {
+        "unit_code": metadata["unit_code"],
+        "assignment": metadata["assignment"],
+        "session_year": metadata["session_year"],
+        "student_id": metadata["student_id"],
+        "questions": questions,
+        "reference": reference,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    doc_id = f"{metadata['student_id']}_{metadata['unit_code']}_{metadata['assignment']}_{metadata['session_year']}"
+    document["_id"] = doc_id
+
+    try:
+        collection.replace_one(
+            filter={"_id": doc_id},
+            replacement=document,
+            upsert=True,
+        )
+        logging.info(f"Stored generated questions for: {doc_id}")
+    except Exception as e:
+        logging.error(f"Database error for {doc_id}: {e}")
+
+
+def has_generated_questions(student_id: str, unit_code: str, assignment: str, session_year: str) -> bool:
+    db = get_mongo_db()
+    doc_id = f"{student_id}_{unit_code}_{assignment}_{session_year}"
+    return db["iviva-generated-questions"].find_one({"_id": doc_id}) is not None
+
+
 def get_staff_document(collection_name: str, unit_code: str, session_year: str, assignment: str):
     db = get_mongo_db()
     return db[collection_name].find_one(
