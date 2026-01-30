@@ -572,3 +572,29 @@ def queue_connectivity_test(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
             mimetype="application/json",
         )
+    
+@app.function_name(name="QueueDequeueTest")
+@app.route(route="queue-dequeue-test", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+def queue_dequeue_test(req: func.HttpRequest) -> func.HttpResponse:
+    queue_name = "iviva-question-generation"
+    conn_str = os.environ.get("AzureWebJobsStorage")
+    if not conn_str:
+        return func.HttpResponse("AzureWebJobsStorage missing", status_code=500)
+
+    qc = QueueClient.from_connection_string(conn_str=conn_str, queue_name=queue_name)
+
+    # Receive makes the message invisible and increments DequeueCount
+    messages = qc.receive_messages(messages_per_page=1, visibility_timeout=30)
+    msg = next(messages, None)
+
+    return func.HttpResponse(
+        json.dumps(
+            {
+                "got_message": msg is not None,
+                "content": msg.content if msg else None,
+                "id": msg.id if msg else None,
+            }
+        ),
+        mimetype="application/json",
+        status_code=200,
+    )
