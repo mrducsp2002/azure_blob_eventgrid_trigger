@@ -256,16 +256,9 @@ def _handle_blob_event(myblob: func.InputStream, target_collection_name: str):
 
 
 def _get_queue_client() -> QueueClient:
-    account_name = os.environ.get("STORAGE_ACCOUNT_NAME")
-    account_key = os.environ.get("STORAGE_ACCOUNT_KEY")
-    if not account_name or not account_key:
-        raise ValueError("Storage account configuration error.")
-    connection_string = (
-        "DefaultEndpointsProtocol=https;"
-        f"AccountName={account_name};"
-        f"AccountKey={account_key};"
-        "EndpointSuffix=core.windows.net"
-    )
+    connection_string = os.environ.get("AzureWebJobsStorage")
+    if not connection_string:
+        raise ValueError("AzureWebJobsStorage is not configured.")
     queue_client = QueueClient.from_connection_string(
         conn_str=connection_string,
         queue_name=_QUESTION_QUEUE_NAME,
