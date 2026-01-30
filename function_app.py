@@ -520,3 +520,12 @@ def generate_sas_token(req: func.HttpRequest) -> func.HttpResponse:
         )
     
 
+@app.function_name(name="QueueSmokeTest")
+@app.queue_trigger(
+    arg_name="msg",
+    queue_name="iviva-question-generation",
+    connection="AzureWebJobsStorage",
+)
+def queue_smoke_test(msg: func.QueueMessage):
+    logging.warning("QueueSmokeTest fired")
+    return
