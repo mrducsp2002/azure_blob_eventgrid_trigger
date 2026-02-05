@@ -7,3 +7,4 @@ openai
 dnspython
 azure-storage-blob
 azure-servicebus
+psycopg2-binary

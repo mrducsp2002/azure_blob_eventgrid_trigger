@@ -2,6 +2,8 @@ import json
 import logging
 import os
 import azure.functions as func
+import psycopg2
+from psycopg2.extras import execute_values
 from src.database import (
     get_mongo_db,
     get_student_assignments,
@@ -277,6 +279,72 @@ def _staff_docs_ready(unit_code: str, assignment: str, session_year: str) -> boo
     return bool(brief and rubric and seed)
 
 
+def _get_postgres_connection():
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        raise ValueError("DATABASE_URL is not configured.")
+    return psycopg2.connect(database_url)
+
+
+def _get_or_create_question_set(cur, unit_code: str, assignment: str, session_year: str) -> str:
+    name = f"{unit_code}_{assignment}_{session_year}"
+    cur.execute(
+        'SELECT "questionSetId" FROM "PersonalisedQuestionSets" '
+        'WHERE "unitCode" = %s AND "assessmentName" = %s AND "name" = %s '
+        'ORDER BY "createdAt" DESC LIMIT 1',
+        (unit_code, assignment, name),
+    )
+    row = cur.fetchone()
+    if row:
+        return row[0]
+
+    cur.execute(
+        'INSERT INTO "PersonalisedQuestionSets" ("name", "unitCode", "assessmentName") '
+        'VALUES (%s, %s, %s) RETURNING "questionSetId"',
+        (name, unit_code, assignment),
+    )
+    return cur.fetchone()[0]
+
+
+def _store_questions_postgres(
+    student_id: str,
+    unit_code: str,
+    assignment: str,
+    session_year: str,
+    questions: list,
+    reference: list,
+):
+    if not questions:
+        return
+
+    reference_list = reference if isinstance(reference, list) else []
+    rows = []
+    for idx, question in enumerate(questions):
+        if question is None:
+            continue
+        reference_text = reference_list[idx] if idx < len(reference_list) else None
+        rows.append((str(question), reference_text, student_id))
+
+    if not rows:
+        return
+
+    with _get_postgres_connection() as conn:
+        with conn.cursor() as cur:
+            question_set_id = _get_or_create_question_set(
+                cur, unit_code=unit_code, assignment=assignment, session_year=session_year
+            )
+            rows_with_set = [
+                (question_text, reference_text, question_set_id, student_id)
+                for question_text, reference_text, student_id in rows
+            ]
+            execute_values(
+                cur,
+                'INSERT INTO "PersonalisedQuestions" '
+                '("questionText", "referenceText", "questionSetId", "studentId") VALUES %s',
+                rows_with_set,
+            )
+
+
 def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str):
     if not _staff_docs_ready(unit_code, assignment, session_year):
         logging.info(
@@ -425,6 +493,17 @@ def question_generation_queue(msg: func.ServiceBusMessage):
             questions,
             reference,
         )
+        try:
+            _store_questions_postgres(
+                student_id=student_id,
+                unit_code=unit_code,
+                assignment=assignment,
+                session_year=session_year,
+                questions=questions,
+                reference=reference,
+            )
+        except Exception as e:
+            logging.error(f"Postgres insert failed: {e}", exc_info=True)
     except ValueError as ve:
         logging.error(f"Question generation failed: {ve}")
     except Exception as e:
