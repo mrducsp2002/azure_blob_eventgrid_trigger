@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import uuid
 import azure.functions as func
 import psycopg2
 from psycopg2.extras import execute_values
@@ -298,10 +299,12 @@ def _get_or_create_question_set(cur, unit_code: str, assignment: str, session_ye
     if row:
         return row[0]
 
+    question_set_id = str(uuid.uuid4())
     cur.execute(
-        'INSERT INTO "PersonalisedQuestionSets" ("name", "unitCode", "assessmentName") '
-        'VALUES (%s, %s, %s) RETURNING "questionSetId"',
-        (name, unit_code, assignment),
+        'INSERT INTO "PersonalisedQuestionSets" '
+        '("questionSetId", "name", "unitCode", "assessmentName") '
+        'VALUES (%s, %s, %s, %s) RETURNING "questionSetId"',
+        (question_set_id, name, unit_code, assignment),
     )
     return cur.fetchone()[0]
 
@@ -323,7 +326,7 @@ def _store_questions_postgres(
         if question is None:
             continue
         reference_text = reference_list[idx] if idx < len(reference_list) else None
-        rows.append((str(question), reference_text, student_id))
+        rows.append((str(uuid.uuid4()), str(question), reference_text, student_id))
 
     if not rows:
         return
@@ -334,13 +337,13 @@ def _store_questions_postgres(
                 cur, unit_code=unit_code, assignment=assignment, session_year=session_year
             )
             rows_with_set = [
-                (question_text, reference_text, question_set_id, student_id)
-                for question_text, reference_text, student_id in rows
+                (question_id, question_text, reference_text, question_set_id, student_id)
+                for question_id, question_text, reference_text, student_id in rows
             ]
             execute_values(
                 cur,
                 'INSERT INTO "PersonalisedQuestions" '
-                '("questionText", "referenceText", "questionSetId", "studentId") VALUES %s',
+                '("questionId", "questionText", "referenceText", "questionSetId", "studentId") VALUES %s',
                 rows_with_set,
             )
 
