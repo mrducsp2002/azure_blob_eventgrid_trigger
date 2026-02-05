@@ -14,7 +14,7 @@ from src.processor import process_blob_stream, extract_batch_metadata
 from src.generator import generate_questions_logic, regenerate_questions_logic
 from src.practice import handle_viva_message, start_viva_session
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
-from azure.storage.queue import QueueClient
+from azure.servicebus import ServiceBusClient, ServiceBusMessage
 from datetime import datetime, timedelta, timezone
 
 app = func.FunctionApp()
@@ -255,21 +255,6 @@ def _handle_blob_event(myblob: func.InputStream, target_collection_name: str):
         raise
 
 
-def _get_queue_client() -> QueueClient:
-    connection_string = os.environ.get("AzureWebJobsStorage")
-    if not connection_string:
-        raise ValueError("AzureWebJobsStorage is not configured.")
-    queue_client = QueueClient.from_connection_string(
-        conn_str=connection_string,
-        queue_name=_QUESTION_QUEUE_NAME,
-    )
-    try:
-        queue_client.create_queue()
-    except Exception:
-        pass
-    return queue_client
-
-
 def _staff_docs_ready(unit_code: str, assignment: str, session_year: str) -> bool:
     brief = get_staff_document(
         collection_name="iviva-staff-assessment-brief",
@@ -299,7 +284,9 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
         )
         return
 
-    queue_client = _get_queue_client()
+    connection_string = os.environ.get("SERVICEBUS_CONNECTION")
+    if not connection_string:
+        raise ValueError("SERVICEBUS_CONNECTION is not configured.")
     student_cursor = get_student_assignments(
         unit_code=unit_code,
         session_year=session_year,
@@ -307,20 +294,22 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
     )
 
     enqueued = 0
-    for doc in student_cursor:
-        student_id = doc.get("student_id")
-        if not student_id:
-            continue
-        if has_generated_questions(student_id, unit_code, assignment, session_year):
-            continue
-        payload = {
-            "student_id": student_id,
-            "unit_code": unit_code,
-            "assignment": assignment,
-            "session_year": session_year,
-        }
-        queue_client.send_message(json.dumps(payload))
-        enqueued += 1
+    with ServiceBusClient.from_connection_string(connection_string) as client:
+        with client.get_queue_sender(_QUESTION_QUEUE_NAME) as sender:
+            for doc in student_cursor:
+                student_id = doc.get("student_id")
+                if not student_id:
+                    continue
+                if has_generated_questions(student_id, unit_code, assignment, session_year):
+                    continue
+                payload = {
+                    "student_id": student_id,
+                    "unit_code": unit_code,
+                    "assignment": assignment,
+                    "session_year": session_year,
+                }
+                sender.send_messages(ServiceBusMessage(json.dumps(payload)))
+                enqueued += 1
 
     logging.info(
         f"Enqueued {enqueued} question generation jobs for {unit_code}_{assignment}_{session_year}."
@@ -383,12 +372,12 @@ def rubric_upload(myblob: func.InputStream):
 #  2B. Queue Trigger: Question Generation
 # ==========================================
 @app.function_name(name="QuestionGenerationQueue")
-@app.queue_trigger(
+@app.service_bus_queue_trigger(
     arg_name="msg",
-    queue_name=_QUESTION_QUEUE_NAME,
-    connection="AzureWebJobsStorage",
+    queue_name="iviva-question-generation",
+    connection="SERVICEBUS_CONNECTION",
 )
-def question_generation_queue(msg: func.QueueMessage):
+def question_generation_queue(msg: func.ServiceBusMessage):
     logging.info("Queue Trigger: Processing Question Generation Job.")
     raw_body = msg.get_body().decode("utf-8")
     logging.info(f"Queue trigger payload: {raw_body}")

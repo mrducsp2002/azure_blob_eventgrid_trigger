@@ -6,4 +6,4 @@ requests
 openai
 dnspython
 azure-storage-blob
-azure-storage-queue
+azure-servicebus
