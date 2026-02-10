@@ -17,15 +17,15 @@ def extract_batch_metadata(blob_name: str) -> dict:
         logging.warning(
             f"Blob name '{blob_name}' invalid format. Using defaults.")
         return {
-            'unit_code': 'UNKNOWN_UNIT',
-            'assignment': 'UNKNOWN_ASS',
-            'session_year': 'UNKNOWN_YEAR'
+            'unit_code': 'unknown_unit',
+            'assignment': 'unknown_ass',
+            'session_year': 'unknown_year'
         }
 
     return {
-        'unit_code': parts[0],
-        'assignment': parts[1],
-        'session_year': parts[2]
+        'unit_code': parts[0].strip().lower(),
+        'assignment': parts[1].strip().lower(),
+        'session_year': parts[2].strip().lower()
     }
     
 def process_blob_stream(content_bytes: bytes, blob_name: str, collection):
@@ -56,7 +56,7 @@ def _process_zip_file(zip_bytes: bytes, blob_name: str, collection):
             if len(parts) < 2:
                 continue
 
-            student_id = parts[1].split('-')[0]  # Extract student ID
+            student_id = parts[1].split('-')[0].strip().lower()  # Extract student ID
             file_name = parts[-1]
 
             try:

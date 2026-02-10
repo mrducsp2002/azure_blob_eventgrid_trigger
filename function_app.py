@@ -2,6 +2,8 @@ import json
 import logging
 import os
 import uuid
+import re
+import time
 import azure.functions as func
 import psycopg2
 from psycopg2.extras import execute_values
@@ -22,6 +24,17 @@ from datetime import datetime, timedelta, timezone
 
 app = func.FunctionApp()
 _QUESTION_QUEUE_NAME = "iviva-question-generation"
+_QUEUE_READY_RETRIES = max(1, int(os.environ.get("QUEUE_READY_RETRIES", "3")))
+_QUEUE_READY_DELAY_SEC = max(0.0, float(os.environ.get("QUEUE_READY_DELAY_SEC", "2")))
+
+
+def _normalize_assignment(value: str) -> str:
+    # Normalize assignment labels like "Assessment 1", "Assessment-1", "Assessment_1".
+    return re.sub(r"[\s_]+", "-", (value or "").strip().lower())
+
+
+def _normalize_meta(value: str) -> str:
+    return (value or "").strip().lower()
 
 # ==========================================
 #  1A. HTTP API: Question Generation and Regeneration
@@ -173,9 +186,9 @@ def upload_seed_questions(req: func.HttpRequest) -> func.HttpResponse:
             status_code=400,
         )
 
-    unit_code = req_body.get("unit_code") or req_body.get("unitCode")
-    assignment = req_body.get("assignment")
-    session_year = req_body.get("session_year") or req_body.get("sessionYear")
+    unit_code = _normalize_meta(req_body.get("unit_code") or req_body.get("unitCode"))
+    assignment = _normalize_assignment(req_body.get("assignment"))
+    session_year = _normalize_meta(req_body.get("session_year") or req_body.get("sessionYear"))
     seed_questions = req_body.get("seed_questions") or req_body.get("seedQuestions")
 
     if not all([unit_code, assignment, session_year, seed_questions]):
@@ -349,7 +362,22 @@ def _store_questions_postgres(
 
 
 def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str):
-    if not _staff_docs_ready(unit_code, assignment, session_year):
+    unit_code = _normalize_meta(unit_code)
+    assignment = _normalize_assignment(assignment)
+    session_year = _normalize_meta(session_year)
+    staff_ready = False
+    for attempt in range(1, _QUEUE_READY_RETRIES + 1):
+        if _staff_docs_ready(unit_code, assignment, session_year):
+            staff_ready = True
+            break
+        if attempt < _QUEUE_READY_RETRIES:
+            logging.info(
+                f"Staff docs not ready for {unit_code}_{assignment}_{session_year}, "
+                f"retrying in {_QUEUE_READY_DELAY_SEC:.1f}s ({attempt}/{_QUEUE_READY_RETRIES})."
+            )
+            time.sleep(_QUEUE_READY_DELAY_SEC)
+
+    if not staff_ready:
         logging.info(
             f"Staff docs not ready for {unit_code}_{assignment}_{session_year}, skipping queue."
         )
