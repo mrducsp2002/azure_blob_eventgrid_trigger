@@ -129,8 +129,8 @@ def start_viva_session(payload: Dict[str, Any]) -> Dict[str, Any]:
         assignment_text=assignment_text,
     )
     questions = questions_response.get("questions", [])
-    if len(questions) < 3:
-        raise ValueError("Could not generate three questions from the document.")
+    if not questions:
+        raise ValueError("Could not generate questions from the document.")
 
     if not assignment_text:
         if assignment:
@@ -159,7 +159,7 @@ def start_viva_session(payload: Dict[str, Any]) -> Dict[str, Any]:
         "session_id": session_id,
         "question": questions[0],
         "question_number": 1,
-        "total_questions": 3,
+        "total_questions": len(questions),
     }
 
 
