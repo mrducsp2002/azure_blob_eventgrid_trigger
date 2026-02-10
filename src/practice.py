@@ -2,6 +2,7 @@ import json
 import os
 import re
 import uuid
+import base64
 from typing import Any, Dict, List, Optional, Tuple
 
 from azure.storage.blob import BlobServiceClient
@@ -104,31 +105,44 @@ def start_viva_session(payload: Dict[str, Any]) -> Dict[str, Any]:
     unit_code = payload.get("unit_code")
     session_year = payload.get("session_year")
     assignment = payload.get("assignment")
+    assignment_text = (payload.get("assignment_text") or "").strip()
+    file_name = payload.get("file_name")
+    file_content_base64 = payload.get("file_content_base64")
 
-    if not all([student_id, unit_code, session_year, assignment]):
+    if not all([student_id, unit_code, session_year]):
         raise ValueError(
-            "Missing required parameters: student_id, unit_code, session_year, assignment."
+            "Missing required parameters: student_id, unit_code, session_year."
         )
+
+    if not assignment_text and file_name and file_content_base64:
+        try:
+            file_bytes = base64.b64decode(file_content_base64)
+            assignment_text = decode_file_content(file_name, file_bytes)
+        except Exception as exc:
+            raise ValueError(f"Unable to decode uploaded assignment: {str(exc)}")
 
     questions_response = generate_questions_logic(
         student_id=student_id,
         unit_code=unit_code,
         session=session_year,
         assignment=assignment,
+        assignment_text=assignment_text,
     )
     questions = questions_response.get("questions", [])
     if len(questions) < 3:
         raise ValueError("Could not generate three questions from the document.")
 
-    assignment_doc = get_student_assignment(
-        student_id=student_id,
-        unit_code=unit_code,
-        session_year=session_year,
-        assignment=assignment,
-    )
-    assignment_text = assignment_doc.get("content", "") if assignment_doc else ""
     if not assignment_text:
-        raise ValueError("No assignment content found for this student.")
+        if assignment:
+            assignment_doc = get_student_assignment(
+                student_id=student_id,
+                unit_code=unit_code,
+                session_year=session_year,
+                assignment=assignment,
+            )
+            assignment_text = assignment_doc.get("content", "") if assignment_doc else ""
+        if not assignment_text:
+            raise ValueError("No assignment content found for this student.")
 
     guidance_text = _load_guidance_text()
     combined_text = (assignment_text + "\n\n" + guidance_text).strip()

@@ -113,7 +113,7 @@ def viva_start(req: func.HttpRequest) -> func.HttpResponse:
         payload = req.get_json()
     except ValueError:
         return func.HttpResponse(
-            "Invalid request body. Please provide JSON with student_id, unit_code, session_year, assignment.",
+            "Invalid request body. Please provide JSON with student_id, unit_code, session_year, and optional assignment/file content.",
             status_code=400,
         )
 

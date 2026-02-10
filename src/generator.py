@@ -12,19 +12,13 @@ client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
 )
 
-def generate_questions_logic(student_id, unit_code, session, assignment):
+def generate_questions_logic(student_id, unit_code, session, assignment=None, assignment_text=None):
     """
     Orchestrates the data fetching and AI generation.
     Returns: A dictionary (JSON) of questions or Raises an Exception.
     """
     # 1. Fetch Document
     docs = {
-        "Student Assignment": get_student_assignment(
-            student_id=student_id,
-            unit_code=unit_code,
-            session_year=session,
-            assignment=assignment,
-        ),
         "Assessment Brief": get_staff_document(
             collection_name="iviva-staff-assessment-brief",
             unit_code=unit_code,
@@ -45,14 +39,32 @@ def generate_questions_logic(student_id, unit_code, session, assignment):
         ),
     }
 
-    # 2. Check required documents
+    # Resolve assignment text from uploaded content first, then DB lookup.
+    resolved_assignment_text = (assignment_text or "").strip()
+    if not resolved_assignment_text:
+        if not assignment:
+            raise ValueError(
+                "Missing assignment content. Provide uploaded assignment text or assignment metadata."
+            )
+        student_doc = get_student_assignment(
+            student_id=student_id,
+            unit_code=unit_code,
+            session_year=session,
+            assignment=assignment,
+        )
+        if student_doc:
+            resolved_assignment_text = (student_doc.get("content", "") or "").strip()
+
+    if not resolved_assignment_text:
+        raise ValueError("No assignment content found for this student.")
+
+    # 2. Check required guidance documents
     missing = [name for name, doc in docs.items() if not doc]
 
     if missing:
         raise ValueError(f"Missing required documents: {', '.join(missing)}")
 
     # 3. Extract Content
-    assignment_text = docs["Student Assignment"].get("content", "")
     brief_text = docs["Assessment Brief"].get("content", "")
     rubric_text = docs["Assessment Rubric"].get("content", "")
     seed_text = docs["Seed Questions"].get("content", "")
@@ -96,7 +108,7 @@ def generate_questions_logic(student_id, unit_code, session, assignment):
                 CONTEXT:
                 Assessment brief: {brief_text}
                 Assessment rubric: {rubric_text}
-                Assignment: {assignment_text}
+                Assignment: {resolved_assignment_text}
                 Seed questions:
                 {format_seed_questions(seed_questions)}
             """}

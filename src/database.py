@@ -122,12 +122,17 @@ def has_generated_questions(student_id: str, unit_code: str, assignment: str, se
     return db["iviva-staff-generated-questions"].find_one({"_id": doc_id}) is not None
 
 
-def get_staff_document(collection_name: str, unit_code: str, session_year: str, assignment: str):
+def get_staff_document(collection_name: str, unit_code: str, session_year: str, assignment: str | None = None):
     db = get_mongo_db()
-    return db[collection_name].find_one(
-        {
-            "unit_code": unit_code,
-            "session_year": session_year,
-            "assignment": assignment,
-        }
-    )
+    query = {
+        "unit_code": unit_code,
+        "session_year": session_year,
+    }
+    if assignment:
+        query["assignment"] = assignment
+
+    # If assignment is not provided, use the most recent guidance doc for the unit/session.
+    if not assignment:
+        return db[collection_name].find_one(query, sort=[("timestamp", -1)])
+
+    return db[collection_name].find_one(query)
