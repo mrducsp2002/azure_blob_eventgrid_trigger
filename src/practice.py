@@ -8,7 +8,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from azure.storage.blob import BlobServiceClient
 from openai import AzureOpenAI
 
-from src.database import get_student_assignment
+from src.database import (
+    create_viva_session,
+    get_student_assignment,
+    get_viva_session,
+    update_viva_session,
+)
 from src.generator import generate_questions_logic
 from src.parsers import decode_file_content
 
@@ -28,8 +33,6 @@ GRADING_SYSTEM_PROMPT = (
     "### SOURCES\n"
     "<one source per line, with text from the retrieved chunk sources and the specific line they come from>\n"
 )
-
-_SESSIONS: Dict[str, Dict[str, Any]] = {}
 
 _client = AzureOpenAI(
     api_version="2024-12-01-preview",
@@ -148,12 +151,11 @@ def start_viva_session(payload: Dict[str, Any]) -> Dict[str, Any]:
     combined_text = (assignment_text + "\n\n" + guidance_text).strip()
 
     session_id = uuid.uuid4().hex
-    _SESSIONS[session_id] = {
-        "document_text": combined_text,
-        "questions": questions,
-        "answers": [],
-        "next_index": 0,
-    }
+    create_viva_session(
+        session_id=session_id,
+        document_text=combined_text,
+        questions=questions,
+    )
 
     return {
         "session_id": session_id,
@@ -171,7 +173,7 @@ def handle_viva_message(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not session_id or not user_message:
         raise ValueError("Missing required parameters: session_id, user_message.")
 
-    session = _SESSIONS.get(session_id)
+    session = get_viva_session(session_id)
     if not session:
         raise KeyError("Session not found.")
 
@@ -202,12 +204,24 @@ def handle_viva_message(payload: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     answers.append(user_message.strip())
-    session["next_index"] = next_index + 1
+    next_index = next_index + 1
+    update_viva_session(
+        session_id,
+        {
+            "answers": answers,
+            "next_index": next_index,
+        },
+    )
 
-    if session["next_index"] >= len(questions):
+    if next_index >= len(questions):
         feedback, score = _grade_answers(document_text, questions, answers)
-        session["feedback"] = feedback
-        session["score"] = score
+        update_viva_session(
+            session_id,
+            {
+                "feedback": feedback,
+                "score": score,
+            },
+        )
         return {
             "done": True,
             "feedback": feedback,
@@ -217,7 +231,7 @@ def handle_viva_message(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "done": False,
-        "question": questions[session["next_index"]],
-        "question_number": session["next_index"] + 1,
+        "question": questions[next_index],
+        "question_number": next_index + 1,
         "total_questions": len(questions),
     }

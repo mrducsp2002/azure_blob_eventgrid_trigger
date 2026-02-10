@@ -181,3 +181,34 @@ def get_staff_document(collection_name: str, unit_code: str, session_year: str, 
             return db[collection_name].find_one(fuzzy_query)
 
     return None
+
+
+def _viva_sessions_collection():
+    db = get_mongo_db()
+    return db["iviva-practice-sessions"]
+
+
+def create_viva_session(session_id: str, document_text: str, questions: list):
+    doc = {
+        "_id": session_id,
+        "document_text": document_text,
+        "questions": questions,
+        "answers": [],
+        "next_index": 0,
+        "feedback": None,
+        "score": None,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _viva_sessions_collection().replace_one({"_id": session_id}, doc, upsert=True)
+
+
+def get_viva_session(session_id: str):
+    return _viva_sessions_collection().find_one({"_id": session_id})
+
+
+def update_viva_session(session_id: str, updates: dict):
+    updates = {**updates, "updated_at": datetime.now(timezone.utc).isoformat()}
+    _viva_sessions_collection().update_one(
+        {"_id": session_id},
+        {"$set": updates},
+    )
