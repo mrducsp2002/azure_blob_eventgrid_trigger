@@ -76,7 +76,7 @@ def _grade_answers(document_text: str, questions: List[str], answers: List[str])
         [f"Q{i + 1}: {questions[i]}\nA{i + 1}: {answers[i]}" for i in range(len(questions))]
     )
     completion = _client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[
             {"role": "system", "content": GRADING_SYSTEM_PROMPT},
             {"role": "user", "content": f"Document:\n{document_text}\n\nQuestions and Answers:\n{qa_text}"},
@@ -112,7 +112,7 @@ def _grade_answers_with_retry(document_text: str, questions: List[str], answers:
 
 def _clarify_question(document_text: str, question: str, user_message: str) -> str:
     completion = _client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[
             {
                 "role": "system",
