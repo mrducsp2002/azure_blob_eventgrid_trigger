@@ -3,6 +3,8 @@ import os
 import re
 import uuid
 import base64
+import logging
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from azure.storage.blob import BlobServiceClient
@@ -39,6 +41,8 @@ _client = AzureOpenAI(
     azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", "https://iviva.cognitiveservices.azure.com/"),
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
 )
+_GRADE_RETRIES = max(1, int(os.getenv("GRADE_RETRIES", "2")))
+_GRADE_RETRY_DELAY_SEC = max(0.0, float(os.getenv("GRADE_RETRY_DELAY_SEC", "0.8")))
 
 
 def _get_blob_bytes(container_name: str, blob_name: str) -> bytes:
@@ -81,6 +85,29 @@ def _grade_answers(document_text: str, questions: List[str], answers: List[str])
     feedback = completion.choices[0].message.content.strip()
     score = _extract_score(feedback)
     return feedback, score
+
+
+def _grade_answers_with_retry(document_text: str, questions: List[str], answers: List[str]) -> Tuple[str, Optional[int]]:
+    last_error: Optional[Exception] = None
+    for attempt in range(1, _GRADE_RETRIES + 1):
+        try:
+            return _grade_answers(document_text, questions, answers)
+        except Exception as exc:
+            last_error = exc
+            logging.error(f"Grading attempt {attempt}/{_GRADE_RETRIES} failed: {exc}")
+            if attempt < _GRADE_RETRIES:
+                time.sleep(_GRADE_RETRY_DELAY_SEC)
+
+    # Graceful fallback so the final turn does not 500/502.
+    fallback_feedback = (
+        "### FEEDBACK\n"
+        "- Overall score: N/A\n"
+        "- Summary: Answers received, but grading was temporarily unavailable.\n"
+        "- Per question: Feedback is unavailable right now. Please retry this session later.\n\n"
+        "### SOURCES\n"
+        "Unavailable"
+    )
+    return fallback_feedback, None
 
 
 def _clarify_question(document_text: str, question: str, user_message: str) -> str:
@@ -214,7 +241,7 @@ def handle_viva_message(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     if next_index >= len(questions):
-        feedback, score = _grade_answers(document_text, questions, answers)
+        feedback, score = _grade_answers_with_retry(document_text, questions, answers)
         update_viva_session(
             session_id,
             {
