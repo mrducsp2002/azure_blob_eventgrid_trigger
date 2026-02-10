@@ -11,6 +11,13 @@ _mongo_db = None
 def _norm(value):
     return str(value).strip().lower() if value is not None else None
 
+
+def _ci_exact(value):
+    normalized = _norm(value)
+    if not normalized:
+        return None
+    return {"$regex": f"^{re.escape(normalized)}$", "$options": "i"}
+
 def get_mongo_db():
     global _mongo_db
     if _mongo_db is None:
@@ -147,7 +154,15 @@ def get_staff_document(collection_name: str, unit_code: str, session_year: str, 
 
     # If assignment is not provided, use the most recent guidance doc for the unit/session.
     if not assignment:
-        return db[collection_name].find_one(query, sort=[("timestamp", -1)])
+        doc = db[collection_name].find_one(query, sort=[("timestamp", -1)])
+        if doc:
+            return doc
+        # Backward-compatible fallback for older mixed-case docs
+        ci_query = {
+            "unit_code": _ci_exact(unit_code),
+            "session_year": _ci_exact(session_year),
+        }
+        return db[collection_name].find_one(ci_query, sort=[("timestamp", -1)])
 
     doc = db[collection_name].find_one(query)
     if doc:
@@ -159,8 +174,8 @@ def get_staff_document(collection_name: str, unit_code: str, session_year: str, 
         if tokens:
             assignment_pattern = r"^" + r"[-_\s]*".join(re.escape(t) for t in tokens) + r"$"
             fuzzy_query = {
-                "unit_code": unit_code,
-                "session_year": session_year,
+                "unit_code": _ci_exact(unit_code),
+                "session_year": _ci_exact(session_year),
                 "assignment": {"$regex": assignment_pattern, "$options": "i"},
             }
             return db[collection_name].find_one(fuzzy_query)
