@@ -388,12 +388,14 @@ def _store_questions_postgres(
         return
 
     reference_list = reference if isinstance(reference, list) else []
+    alternate_list = alternate_questions if isinstance(alternate_questions, list) else []
     rows = []
     for idx, question in enumerate(questions):
         if question is None:
             continue
         reference_text = reference_list[idx] if idx < len(reference_list) else None
-        rows.append((str(uuid.uuid4()), str(question), reference_text, student_id))
+        alternate_text = str(alternate_list[idx]).strip() if idx < len(alternate_list) and alternate_list[idx] is not None else None
+        rows.append((str(uuid.uuid4()), str(question), reference_text, student_id, alternate_text))
 
     if not rows:
         return
@@ -407,29 +409,28 @@ def _store_questions_postgres(
                 session_year=session_year,
                 staff_id=staff_id,
             )
+            # Idempotent behavior: replace existing generated rows for this student/set.
+            cur.execute(
+                'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s AND "studentId" = %s',
+                (question_set_id, student_id),
+            )
             rows_with_set = [
-                (question_id, question_text, reference_text, question_set_id, student_id)
-                for question_id, question_text, reference_text, student_id in rows
+                (
+                    question_id,
+                    question_text,
+                    reference_text,
+                    question_set_id,
+                    student_id,
+                    alternate_text,
+                )
+                for question_id, question_text, reference_text, student_id, alternate_text in rows
             ]
             execute_values(
                 cur,
                 'INSERT INTO "PersonalisedQuestions" '
-                '("questionId", "questionText", "referenceText", "questionSetId", "studentId") VALUES %s',
+                '("questionId", "questionText", "referenceText", "questionSetId", "studentId", "alternateQuestion") VALUES %s',
                 rows_with_set,
             )
-            if alternate_questions:
-                alt_rows = [
-                    (str(uuid.uuid4()), str(question), None, question_set_id, student_id)
-                    for question in alternate_questions
-                    if str(question).strip()
-                ]
-                if alt_rows:
-                    execute_values(
-                        cur,
-                        'INSERT INTO "PersonalisedQuestions" '
-                        '("questionId", "questionText", "referenceText", "questionSetId", "studentId") VALUES %s',
-                        alt_rows,
-                    )
 
 
 def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str):
