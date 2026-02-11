@@ -192,6 +192,7 @@ def upload_seed_questions(req: func.HttpRequest) -> func.HttpResponse:
     staff_id = _normalize_meta(req_body.get("staff_id") or req_body.get("staffId"))
     seed_questions = req_body.get("seed_questions") or req_body.get("seedQuestions")
     alternate_questions = req_body.get("alternate_questions") or req_body.get("alternateQuestions")
+    seed_items = req_body.get("seed_items") or req_body.get("seedItems")
 
     if not all([unit_code, assignment, session_year, seed_questions]):
         return func.HttpResponse(
@@ -209,8 +210,28 @@ def upload_seed_questions(req: func.HttpRequest) -> func.HttpResponse:
             "alternate_questions must be a list of strings when provided.",
             status_code=400,
         )
+    if seed_items is not None and not isinstance(seed_items, list):
+        return func.HttpResponse(
+            "seed_items must be a list when provided.",
+            status_code=400,
+        )
 
-    cleaned_questions = [str(q).strip() for q in seed_questions if str(q).strip()]
+    cleaned_questions = []
+    cleaned_alternates = []
+    if isinstance(seed_items, list) and seed_items:
+        for item in seed_items:
+            if not isinstance(item, dict):
+                continue
+            primary = str(item.get("question") or "").strip()
+            alt = str(item.get("alternate_question") or "").strip()
+            if primary:
+                cleaned_questions.append(primary)
+            if alt:
+                cleaned_alternates.append(alt)
+    else:
+        cleaned_questions = [str(q).strip() for q in seed_questions if str(q).strip()]
+        cleaned_alternates = [str(q).strip() for q in (alternate_questions or []) if str(q).strip()]
+
     if not cleaned_questions:
         return func.HttpResponse(
             "seed_questions cannot be empty.",
@@ -225,7 +246,8 @@ def upload_seed_questions(req: func.HttpRequest) -> func.HttpResponse:
         "assignment": assignment,
         "session_year": session_year,
         "staff_id": staff_id or None,
-        "alternate_questions": [str(q) for q in (alternate_questions or []) if str(q).strip()],
+        "alternate_questions": cleaned_alternates,
+        "seed_items": seed_items if isinstance(seed_items, list) else None,
     }
 
     try:

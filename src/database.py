@@ -45,6 +45,7 @@ def store_document(collection, metadata: dict, content: str, source_blob: str):
     student_id = _norm(metadata.get('student_id'))
     staff_id = _norm(metadata.get('staff_id'))
     alternate_questions = metadata.get('alternate_questions')
+    seed_items = metadata.get('seed_items')
 
     # 1. Base Document (Fields shared by EVERYONE)
     document = {
@@ -66,6 +67,22 @@ def store_document(collection, metadata: dict, content: str, source_blob: str):
         document["staff_id"] = staff_id
     if isinstance(alternate_questions, list):
         document["alternate_questions"] = [str(q) for q in alternate_questions]
+    if isinstance(seed_items, list):
+        cleaned_seed_items = []
+        for item in seed_items:
+            if not isinstance(item, dict):
+                continue
+            q = str(item.get("question") or "").strip()
+            alt = str(item.get("alternate_question") or "").strip()
+            if not q:
+                continue
+            cleaned_seed_items.append(
+                {
+                    "question": q,
+                    "alternate_question": alt if alt else None,
+                }
+            )
+        document["seed_items"] = cleaned_seed_items
     document["_id"] = doc_id
 
     # 3. Upsert
