@@ -43,6 +43,7 @@ def store_document(collection, metadata: dict, content: str, source_blob: str):
     assignment = _norm(metadata.get('assignment')) or "unknown_ass"
     session_year = _norm(metadata.get('session_year')) or "unknown_year"
     student_id = _norm(metadata.get('student_id'))
+    staff_id = _norm(metadata.get('staff_id'))
 
     # 1. Base Document (Fields shared by EVERYONE)
     document = {
@@ -60,6 +61,8 @@ def store_document(collection, metadata: dict, content: str, source_blob: str):
         document["student_id"] = student_id  # Add student_id
     else:
         doc_id = f"{unit_code}_{assignment}_{session_year}"
+    if staff_id:
+        document["staff_id"] = staff_id
     document["_id"] = doc_id
 
     # 3. Upsert

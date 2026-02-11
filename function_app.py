@@ -189,6 +189,7 @@ def upload_seed_questions(req: func.HttpRequest) -> func.HttpResponse:
     unit_code = _normalize_meta(req_body.get("unit_code") or req_body.get("unitCode"))
     assignment = _normalize_assignment(req_body.get("assignment"))
     session_year = _normalize_meta(req_body.get("session_year") or req_body.get("sessionYear"))
+    staff_id = _normalize_meta(req_body.get("staff_id") or req_body.get("staffId"))
     seed_questions = req_body.get("seed_questions") or req_body.get("seedQuestions")
 
     if not all([unit_code, assignment, session_year, seed_questions]):
@@ -217,6 +218,7 @@ def upload_seed_questions(req: func.HttpRequest) -> func.HttpResponse:
         "unit_code": unit_code,
         "assignment": assignment,
         "session_year": session_year,
+        "staff_id": staff_id or None,
     }
 
     try:
@@ -300,25 +302,46 @@ def _get_postgres_connection():
     return psycopg2.connect(database_url)
 
 
-def _get_or_create_question_set(cur, unit_code: str, assignment: str, session_year: str) -> str:
+def _get_or_create_question_set(
+    cur,
+    unit_code: str,
+    assignment: str,
+    session_year: str,
+    staff_id: str | None = None,
+) -> str:
     name = f"{unit_code}_{assignment}_{session_year}"
     cur.execute(
-        'SELECT "questionSetId" FROM "PersonalisedQuestionSets" '
+        'SELECT "questionSetId", "staffId" FROM "PersonalisedQuestionSets" '
         'WHERE "unitCode" = %s AND "assessmentName" = %s AND "name" = %s '
         'ORDER BY "createdAt" DESC LIMIT 1',
         (unit_code, assignment, name),
     )
     row = cur.fetchone()
     if row:
-        return row[0]
+        question_set_id, existing_staff_id = row[0], row[1]
+        if staff_id and not existing_staff_id:
+            cur.execute(
+                'UPDATE "PersonalisedQuestionSets" SET "staffId" = %s WHERE "questionSetId" = %s',
+                (staff_id, question_set_id),
+            )
+        return question_set_id
 
     question_set_id = str(uuid.uuid4())
-    cur.execute(
-        'INSERT INTO "PersonalisedQuestionSets" '
-        '("questionSetId", "name", "unitCode", "assessmentName") '
-        'VALUES (%s, %s, %s, %s) RETURNING "questionSetId"',
-        (question_set_id, name, unit_code, assignment),
-    )
+    if staff_id:
+        cur.execute(
+            'INSERT INTO "PersonalisedQuestionSets" '
+            '("questionSetId", "name", "unitCode", "assessmentName", "staffId") '
+            'VALUES (%s, %s, %s, %s, %s) RETURNING "questionSetId"',
+            (question_set_id, name, unit_code, assignment, staff_id),
+        )
+        return cur.fetchone()[0]
+    else:
+        cur.execute(
+            'INSERT INTO "PersonalisedQuestionSets" '
+            '("questionSetId", "name", "unitCode", "assessmentName") '
+            'VALUES (%s, %s, %s, %s) RETURNING "questionSetId"',
+            (question_set_id, name, unit_code, assignment),
+        )
     return cur.fetchone()[0]
 
 
@@ -327,6 +350,7 @@ def _store_questions_postgres(
     unit_code: str,
     assignment: str,
     session_year: str,
+    staff_id: str | None,
     questions: list,
     reference: list,
 ):
@@ -347,7 +371,11 @@ def _store_questions_postgres(
     with _get_postgres_connection() as conn:
         with conn.cursor() as cur:
             question_set_id = _get_or_create_question_set(
-                cur, unit_code=unit_code, assignment=assignment, session_year=session_year
+                cur,
+                unit_code=unit_code,
+                assignment=assignment,
+                session_year=session_year,
+                staff_id=staff_id,
             )
             rows_with_set = [
                 (question_id, question_text, reference_text, question_set_id, student_id)
@@ -391,6 +419,13 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
         session_year=session_year,
         assignment=assignment,
     )
+    seed_doc = get_staff_document(
+        collection_name="iviva-staff-seed-questions",
+        unit_code=unit_code,
+        session_year=session_year,
+        assignment=assignment,
+    )
+    staff_id = _normalize_meta((seed_doc or {}).get("staff_id")) if seed_doc else None
 
     enqueued = 0
     with ServiceBusClient.from_connection_string(connection_string) as client:
@@ -406,6 +441,7 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
                     "unit_code": unit_code,
                     "assignment": assignment,
                     "session_year": session_year,
+                    "staff_id": staff_id,
                 }
                 sender.send_messages(ServiceBusMessage(json.dumps(payload)))
                 enqueued += 1
@@ -490,6 +526,7 @@ def question_generation_queue(msg: func.ServiceBusMessage):
     unit_code = payload.get("unit_code")
     assignment = payload.get("assignment")
     session_year = payload.get("session_year")
+    staff_id = payload.get("staff_id")
 
     if not all([student_id, unit_code, assignment, session_year]):
         logging.error("Queue payload missing required fields.")
@@ -530,6 +567,7 @@ def question_generation_queue(msg: func.ServiceBusMessage):
                 unit_code=unit_code,
                 assignment=assignment,
                 session_year=session_year,
+                staff_id=staff_id,
                 questions=questions,
                 reference=reference,
             )
