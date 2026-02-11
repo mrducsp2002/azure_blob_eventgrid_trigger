@@ -191,6 +191,7 @@ def upload_seed_questions(req: func.HttpRequest) -> func.HttpResponse:
     session_year = _normalize_meta(req_body.get("session_year") or req_body.get("sessionYear"))
     staff_id = _normalize_meta(req_body.get("staff_id") or req_body.get("staffId"))
     seed_questions = req_body.get("seed_questions") or req_body.get("seedQuestions")
+    alternate_questions = req_body.get("alternate_questions") or req_body.get("alternateQuestions")
 
     if not all([unit_code, assignment, session_year, seed_questions]):
         return func.HttpResponse(
@@ -201,6 +202,11 @@ def upload_seed_questions(req: func.HttpRequest) -> func.HttpResponse:
     if not isinstance(seed_questions, list):
         return func.HttpResponse(
             "seed_questions must be a list of strings.",
+            status_code=400,
+        )
+    if alternate_questions is not None and not isinstance(alternate_questions, list):
+        return func.HttpResponse(
+            "alternate_questions must be a list of strings when provided.",
             status_code=400,
         )
 
@@ -219,6 +225,7 @@ def upload_seed_questions(req: func.HttpRequest) -> func.HttpResponse:
         "assignment": assignment,
         "session_year": session_year,
         "staff_id": staff_id or None,
+        "alternate_questions": [str(q) for q in (alternate_questions or []) if str(q).strip()],
     }
 
     try:
@@ -353,6 +360,7 @@ def _store_questions_postgres(
     staff_id: str | None,
     questions: list,
     reference: list,
+    alternate_questions: list | None = None,
 ):
     if not questions:
         return
@@ -387,6 +395,19 @@ def _store_questions_postgres(
                 '("questionId", "questionText", "referenceText", "questionSetId", "studentId") VALUES %s',
                 rows_with_set,
             )
+            if alternate_questions:
+                alt_rows = [
+                    (str(uuid.uuid4()), str(question), None, question_set_id, student_id)
+                    for question in alternate_questions
+                    if str(question).strip()
+                ]
+                if alt_rows:
+                    execute_values(
+                        cur,
+                        'INSERT INTO "PersonalisedQuestions" '
+                        '("questionId", "questionText", "referenceText", "questionSetId", "studentId") VALUES %s',
+                        alt_rows,
+                    )
 
 
 def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str):
@@ -426,6 +447,7 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
         assignment=assignment,
     )
     staff_id = _normalize_meta((seed_doc or {}).get("staff_id")) if seed_doc else None
+    alternate_questions = (seed_doc or {}).get("alternate_questions") if seed_doc else []
 
     enqueued = 0
     with ServiceBusClient.from_connection_string(connection_string) as client:
@@ -442,6 +464,7 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
                     "assignment": assignment,
                     "session_year": session_year,
                     "staff_id": staff_id,
+                    "alternate_questions": alternate_questions,
                 }
                 sender.send_messages(ServiceBusMessage(json.dumps(payload)))
                 enqueued += 1
@@ -527,6 +550,7 @@ def question_generation_queue(msg: func.ServiceBusMessage):
     assignment = payload.get("assignment")
     session_year = payload.get("session_year")
     staff_id = payload.get("staff_id")
+    alternate_questions = payload.get("alternate_questions") or []
 
     if not all([student_id, unit_code, assignment, session_year]):
         logging.error("Queue payload missing required fields.")
@@ -570,6 +594,7 @@ def question_generation_queue(msg: func.ServiceBusMessage):
                 staff_id=staff_id,
                 questions=questions,
                 reference=reference,
+                alternate_questions=alternate_questions,
             )
         except Exception as e:
             logging.error(f"Postgres insert failed: {e}", exc_info=True)
