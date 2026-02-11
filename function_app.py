@@ -339,6 +339,10 @@ def _get_or_create_question_set(
     staff_id: str | None = None,
 ) -> str:
     name = f"{unit_code}_{assignment}_{session_year}"
+    # Serialize get/create per logical set key to prevent duplicate rows under concurrent queue workers.
+    lock_key = f"{unit_code}|{assignment}|{session_year}"
+    cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (lock_key,))
+
     cur.execute(
         'SELECT "questionSetId", "staffId" FROM "PersonalisedQuestionSets" '
         'WHERE "unitCode" = %s AND "assessmentName" = %s AND "name" = %s '
