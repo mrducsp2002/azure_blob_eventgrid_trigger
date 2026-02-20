@@ -254,11 +254,6 @@ def upload_seed_questions(req: func.HttpRequest) -> func.HttpResponse:
         db = get_mongo_db()
         collection = db["iviva-staff-seed-questions"]
         store_document(collection, metadata, content, source_blob="SeedQuestionsUpload")
-        _enqueue_generation_jobs(
-            unit_code=unit_code,
-            assignment=assignment,
-            session_year=session_year,
-        )
         return func.HttpResponse(
             json.dumps({"status": "ok"}),
             mimetype="application/json",
@@ -529,12 +524,6 @@ def student_assignments_upload(myblob: func.InputStream):
 def brief_upload(myblob: func.InputStream):
     _handle_blob_event(
         myblob, target_collection_name="iviva-staff-assessment-brief")
-    metadata = extract_batch_metadata(myblob.name)
-    _enqueue_generation_jobs(
-        unit_code=metadata["unit_code"],
-        assignment=metadata["assignment"],
-        session_year=metadata["session_year"],
-    )
     
 # Upload assessment rubrics
 @app.function_name(name="RubricUpload")
@@ -545,12 +534,6 @@ def brief_upload(myblob: func.InputStream):
 def rubric_upload(myblob: func.InputStream):
     _handle_blob_event(
         myblob, target_collection_name="iviva-staff-assessment-rubrics")
-    metadata = extract_batch_metadata(myblob.name)
-    _enqueue_generation_jobs(
-        unit_code=metadata["unit_code"],
-        assignment=metadata["assignment"],
-        session_year=metadata["session_year"],
-    )
 
 
 # ==========================================
