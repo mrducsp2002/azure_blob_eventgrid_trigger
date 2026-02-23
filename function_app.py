@@ -36,6 +36,11 @@ def _normalize_assignment(value: str) -> str:
 def _normalize_meta(value: str) -> str:
     return (value or "").strip().lower()
 
+
+def _normalize_session(value: str) -> str:
+    # Keep session metadata aligned across seed payloads and blob-name extraction.
+    return re.sub(r"[\s_]+", "-", (value or "").strip().lower())
+
 # ==========================================
 #  1A. HTTP API: Question Generation and Regeneration
 # ==========================================
@@ -188,7 +193,7 @@ def upload_seed_questions(req: func.HttpRequest) -> func.HttpResponse:
 
     unit_code = _normalize_meta(req_body.get("unit_code") or req_body.get("unitCode"))
     assignment = _normalize_assignment(req_body.get("assignment"))
-    session_year = _normalize_meta(req_body.get("session_year") or req_body.get("sessionYear"))
+    session_year = _normalize_session(req_body.get("session_year") or req_body.get("sessionYear"))
     staff_id = _normalize_meta(req_body.get("staff_id") or req_body.get("staffId"))
     seed_questions = req_body.get("seed_questions") or req_body.get("seedQuestions")
     alternate_questions = req_body.get("alternate_questions") or req_body.get("alternateQuestions")
@@ -435,7 +440,7 @@ def _store_questions_postgres(
 def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str):
     unit_code = _normalize_meta(unit_code)
     assignment = _normalize_assignment(assignment)
-    session_year = _normalize_meta(session_year)
+    session_year = _normalize_session(session_year)
     staff_ready = False
     for attempt in range(1, _QUEUE_READY_RETRIES + 1):
         if _staff_docs_ready(unit_code, assignment, session_year):
