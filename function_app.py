@@ -651,7 +651,9 @@ def generate_sas_token(req: func.HttpRequest) -> func.HttpResponse:
         "iviva-student-assignments", 
         "iviva-staff-assessment-brief", 
         "iviva-staff-assessment-rubrics",
-        "iviva-staff-seed-questions"
+        "iviva-staff-seed-questions",
+        "iviva-staff-exemplar-assignments",
+        "iviva-staff-viva-rubrics",
         ]:
         return func.HttpResponse(
             "Unallowed container.",
