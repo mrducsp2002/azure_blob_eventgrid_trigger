@@ -404,37 +404,100 @@ def _store_questions_postgres(
     if not rows:
         return
 
-    with _get_postgres_connection() as conn:
-        with conn.cursor() as cur:
-            question_set_id = _get_or_create_question_set(
-                cur,
-                unit_code=unit_code,
-                assignment=assignment,
-                session_year=session_year,
-                staff_id=staff_id,
-            )
-            # Idempotent behavior: replace existing generated rows for this student/set.
-            cur.execute(
-                'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s AND "studentId" = %s',
-                (question_set_id, student_id),
-            )
-            rows_with_set = [
-                (
-                    question_id,
-                    question_text,
-                    reference_text,
-                    question_set_id,
-                    student_id,
-                    alternate_text,
+    def _attempt_insert(effective_staff_id: str | None, include_student_id: bool):
+        with _get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                question_set_id = _get_or_create_question_set(
+                    cur,
+                    unit_code=unit_code,
+                    assignment=assignment,
+                    session_year=session_year,
+                    staff_id=effective_staff_id,
                 )
-                for question_id, question_text, reference_text, student_id, alternate_text in rows
-            ]
-            execute_values(
-                cur,
-                'INSERT INTO "PersonalisedQuestions" '
-                '("questionId", "questionText", "referenceText", "questionSetId", "studentId", "alternateQuestion") VALUES %s',
-                rows_with_set,
+                # Idempotent behavior: replace existing generated rows for this student/set.
+                if include_student_id:
+                    cur.execute(
+                        'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s AND "studentId" = %s',
+                        (question_set_id, student_id),
+                    )
+                else:
+                    cur.execute(
+                        'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s AND "studentId" IS NULL',
+                        (question_set_id,),
+                    )
+
+                rows_with_set = [
+                    (
+                        question_id,
+                        question_text,
+                        reference_text,
+                        question_set_id,
+                        student_id if include_student_id else None,
+                        alternate_text,
+                    )
+                    for question_id, question_text, reference_text, student_id, alternate_text in rows
+                ]
+                execute_values(
+                    cur,
+                    'INSERT INTO "PersonalisedQuestions" '
+                    '("questionId", "questionText", "referenceText", "questionSetId", "studentId", "alternateQuestion") VALUES %s',
+                    rows_with_set,
+                )
+                # For summative/normal flow, ensure each student has one session for this question set.
+                # Idempotent: only create when no existing session links this student to the set.
+                if include_student_id:
+                    cur.execute(
+                        'INSERT INTO "Sessions" ("sessionId", "studentId", "questionSetId", "status", "remainingAttempt") '
+                        'SELECT %s, %s, %s, %s, %s '
+                        'WHERE NOT EXISTS ('
+                        '  SELECT 1 FROM "Sessions" WHERE "studentId" = %s AND "questionSetId" = %s'
+                        ')',
+                        (
+                            str(uuid.uuid4()),
+                            student_id,
+                            question_set_id,
+                            "READY_TO_START",
+                            1,
+                            student_id,
+                            question_set_id,
+                        ),
+                    )
+
+    effective_staff_id = staff_id
+    include_student_id = True
+    for _ in range(3):
+        try:
+            _attempt_insert(
+                effective_staff_id=effective_staff_id,
+                include_student_id=include_student_id,
             )
+            return
+        except psycopg2.Error as e:
+            constraint_name = getattr(getattr(e, "diag", None), "constraint_name", "")
+            is_fk_violation = e.pgcode == "23503"
+            if (
+                is_fk_violation
+                and "PersonalisedQuestionSets_staffId_fkey" in (constraint_name or "")
+                and effective_staff_id
+            ):
+                logging.warning(
+                    "Postgres FK violation on staffId (%s). Retrying without staffId.",
+                    effective_staff_id,
+                )
+                effective_staff_id = None
+                continue
+            if (
+                is_fk_violation
+                and "PersonalisedQuestions_studentId_fkey" in (constraint_name or "")
+                and include_student_id
+            ):
+                logging.warning(
+                    "Postgres FK violation on studentId (%s). Retrying with NULL studentId.",
+                    student_id,
+                )
+                include_student_id = False
+                continue
+            raise
 
 
 def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str):
