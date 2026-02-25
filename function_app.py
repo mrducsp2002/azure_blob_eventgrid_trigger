@@ -447,18 +447,26 @@ def _store_questions_postgres(
                 # Idempotent: only create when no existing session links this student to the set.
                 if include_student_id:
                     cur.execute(
+                        'WITH matched_user AS ('
+                        '  SELECT "userId" '
+                        '  FROM "Users" '
+                        '  WHERE "schoolId" = %s OR "userId"::text = %s '
+                        '  LIMIT 1'
+                        ') '
                         'INSERT INTO "Sessions" ("sessionId", "studentId", "questionSetId", "status", "remainingAttempt") '
-                        'SELECT %s, %s, %s, %s, %s '
+                        'SELECT %s, m."userId", %s, %s, %s '
+                        'FROM matched_user m '
                         'WHERE NOT EXISTS ('
-                        '  SELECT 1 FROM "Sessions" WHERE "studentId" = %s AND "questionSetId" = %s'
+                        '  SELECT 1 FROM "Sessions" s '
+                        '  WHERE s."studentId" = m."userId" AND s."questionSetId" = %s'
                         ')',
                         (
-                            str(uuid.uuid4()),
                             student_id,
+                            student_id,
+                            str(uuid.uuid4()),
                             question_set_id,
                             "READY_TO_START",
                             1,
-                            student_id,
                             question_set_id,
                         ),
                     )
@@ -498,6 +506,29 @@ def _store_questions_postgres(
                 include_student_id = False
                 continue
             raise
+
+
+def _has_postgres_questions(
+    student_id: str,
+    unit_code: str,
+    assignment: str,
+    session_year: str,
+) -> bool:
+    set_name = f"{unit_code}_{assignment}_{session_year}"
+    with _get_postgres_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT 1 '
+                'FROM "PersonalisedQuestions" pq '
+                'JOIN "PersonalisedQuestionSets" qs ON qs."questionSetId" = pq."questionSetId" '
+                'WHERE pq."studentId" = %s '
+                '  AND qs."unitCode" = %s '
+                '  AND qs."assessmentName" = %s '
+                '  AND qs."name" = %s '
+                'LIMIT 1',
+                (student_id, unit_code, assignment, set_name),
+            )
+            return cur.fetchone() is not None
 
 
 def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str):
@@ -635,10 +666,22 @@ def question_generation_queue(msg: func.ServiceBusMessage):
         return
 
     if has_generated_questions(student_id, unit_code, assignment, session_year):
-        logging.info(
-            f"Questions already generated for {student_id}_{unit_code}_{assignment}_{session_year}."
-        )
-        return
+        try:
+            if _has_postgres_questions(student_id, unit_code, assignment, session_year):
+                logging.info(
+                    f"Questions already generated for {student_id}_{unit_code}_{assignment}_{session_year}."
+                )
+                return
+            logging.warning(
+                f"Generated marker exists but Postgres rows missing for "
+                f"{student_id}_{unit_code}_{assignment}_{session_year}; retrying generation."
+            )
+        except Exception as e:
+            logging.error(
+                f"Unable to verify Postgres generated rows for "
+                f"{student_id}_{unit_code}_{assignment}_{session_year}: {e}"
+            )
+            return
 
     try:
         result = generate_questions_logic(
@@ -650,19 +693,6 @@ def question_generation_queue(msg: func.ServiceBusMessage):
         questions = result.get("questions", [])
         reference = result.get("reference", [])
 
-        db = get_mongo_db()
-        collection = db["iviva-staff-generated-questions"]
-        store_generated_questions(
-            collection,
-            {
-                "student_id": student_id,
-                "unit_code": unit_code,
-                "assignment": assignment,
-                "session_year": session_year,
-            },
-            questions,
-            reference,
-        )
         try:
             _store_questions_postgres(
                 student_id=student_id,
@@ -676,6 +706,22 @@ def question_generation_queue(msg: func.ServiceBusMessage):
             )
         except Exception as e:
             logging.error(f"Postgres insert failed: {e}", exc_info=True)
+            # Do not mark as generated when Postgres persistence fails.
+            # This keeps queue retries available instead of permanently skipping this student.
+            raise
+        db = get_mongo_db()
+        collection = db["iviva-staff-generated-questions"]
+        store_generated_questions(
+            collection,
+            {
+                "student_id": student_id,
+                "unit_code": unit_code,
+                "assignment": assignment,
+                "session_year": session_year,
+            },
+            questions,
+            reference,
+        )
     except ValueError as ve:
         logging.error(f"Question generation failed: {ve}")
     except Exception as e:
