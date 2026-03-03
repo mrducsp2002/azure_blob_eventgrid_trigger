@@ -79,14 +79,14 @@ def generate_questions_logic(student_id, unit_code, session, assignment=None, as
 
         # Guidelines
         - **Context-Specific:** Ensure each question relates directly to the student's submitted assignment.
+        - **Quantity:** Generate exactly the same number of questions as provided in the seed questions. If there are n questions in the seed questions pack, generate exactly n questions for the students, no more, no less.
         - **Seed Alignment:** Use the provided seed questions as inspiration.
-        - **Quantity:** Generate exactly the same number of questions as provided in the seed input.
         - **Tone:** Use intermediate spoken language suitable for a verbal assessment.
 
         # Steps
         1. Analyze the seed questions for style and scope.
         2. Review the assignment content to find relevant arguments or data.
-        3. Generate questions that explicitly reference the student's work.
+        3. Generate questions that explicitly reference the student's work, the number of questions must match the number of seed questions provided.
         4. Output strictly in the JSON format below.
 
         # Output Format
