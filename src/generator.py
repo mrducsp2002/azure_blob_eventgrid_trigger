@@ -111,6 +111,8 @@ def generate_questions_logic(student_id, unit_code, session, assignment=None, as
                 Assignment: {resolved_assignment_text}
                 Seed questions:
                 {format_seed_questions(seed_questions)}
+
+                Now generate {len(seed_questions)} personalized questions given the context above and follow the seed questions structure.
             """}
         ]
     )
