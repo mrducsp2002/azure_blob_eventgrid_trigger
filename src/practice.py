@@ -264,4 +264,4 @@ def handle_viva_message(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 def _norm(value):
-    return str(value).strip().lower().replace(" ", "_") if value is not None else None
+    return str(value).strip().lower().replace(" ", "-") if value is not None else None
