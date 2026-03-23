@@ -132,9 +132,9 @@ def _clarify_question(document_text: str, question: str, user_message: str) -> s
 
 def start_viva_session(payload: Dict[str, Any]) -> Dict[str, Any]:
     student_id = payload.get("student_id")
-    unit_code = payload.get("unit_code")
-    session_year = payload.get("session_year")
-    assignment = payload.get("assignment")
+    unit_code = _norm(payload.get("unit_code"))
+    session_year = _norm(payload.get("session_year"))
+    assignment = _norm(payload.get("assignment"))
     assignment_text = (payload.get("assignment_text") or "").strip()
     file_name = payload.get("file_name")
     file_content_base64 = payload.get("file_content_base64")
@@ -262,3 +262,6 @@ def handle_viva_message(payload: Dict[str, Any]) -> Dict[str, Any]:
         "question_number": next_index + 1,
         "total_questions": len(questions),
     }
+
+def _norm(value):
+    return str(value).strip().lower().replace(" ", "_") if value is not None else None
