@@ -29,7 +29,6 @@ GRADING_SYSTEM_PROMPT = (
     "If the text does not support an answer, call that out. "
     "Output:\n\n"
     "### FEEDBACK\n"
-    "- Overall score: <int>/10\n"
     "- Summary: <one short sentence>\n"
     "- Per question: Q1 <feedback>; Q2 <feedback>; Q3 <feedback>\n\n"
     "### SOURCES\n"
