@@ -16,7 +16,7 @@ from src.database import (
     store_generated_questions,
 )
 from src.processor import process_blob_stream, extract_batch_metadata
-from src.generator import generate_questions_logic, regenerate_questions_logic
+from src.generator import generate_questions_logic, regenerate_questions_logic, generate_feedback
 from src.practice import handle_viva_message, start_viva_session
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
@@ -82,6 +82,36 @@ def generate_iviva_question(req: func.HttpRequest) -> func.HttpResponse:
         # Handle unexpected crashes
         logging.error(f"Internal Error: {e}")
         return func.HttpResponse(f"Error generating questions: {str(e)}", status_code=500)
+    
+@app.route(route="generate_feedback", auth_level=func.AuthLevel.FUNCTION)
+def generate_iviva_feedback(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info('HTTP Trigger: Processing IVIVA Feedback Generation.')
+    
+    try: 
+        req_body = req.get.json()
+        unit_code = req_body.get('unit_code')
+        session_year = req_body.get('session_year')
+        assignment = req_body.get('assignment')
+        questions = req_body.get('questions')
+        answers = req_body.get('answers')
+        
+    except ValueError: 
+        return func.HttpResponse(
+            "Invalid request body. Please provide JSON with unit_code, session_year, assignment, questions, and answers.",
+            status_code=400
+        )
+        
+    try:
+        feedback = generate_feedback(unit_code, session_year, assignment, questions, answers)
+        return func.HttpResponse(
+            json.dumps({"feedback": feedback}),
+            mimetype="application/json",
+            status_code=200
+        )
+        
+    except ValueError as ve:
+        return func.HttpResponse(str(ve), status_code=404)
+    
 
 @app.route(route="iviva_question_regeneration", auth_level=func.AuthLevel.FUNCTION)
 def regenerate_iviva_question(req: func.HttpRequest) -> func.HttpResponse:

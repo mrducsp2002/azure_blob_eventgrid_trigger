@@ -4,6 +4,7 @@ import os
 import re
 from openai import AzureOpenAI
 from src.database import get_student_assignment, get_staff_document
+from typing import Any, Dict, List, Optional, Tuple
 
 # Initialize OpenAI 
 client = AzureOpenAI(
@@ -177,3 +178,61 @@ def regenerate_questions_logic(current_question, user_comment):
 
     # Return the parsed JSON object directly
     return json.loads(response.choices[0].message.content)
+
+def generate_feedback(unit_code: str, session: str, assignment:str, questions: List[str], answers: List[str]) -> str:
+    """
+    Generates feedback based on the student's answers to the questions.
+    Returns: Feedback as string 
+    """
+    
+    # 1. Fetch Document
+    docs = {
+        "Assessment Brief": get_staff_document(
+            collection_name="iviva-staff-assessment-brief",
+            unit_code=unit_code,
+            session_year=session,
+            assignment=assignment,
+        ),
+        "Assessment Rubric": get_staff_document(
+            collection_name="iviva-staff-assessment-rubrics",
+            unit_code=unit_code,
+            session_year=session,
+            assignment=assignment,
+        )}
+    
+    missing = [name for name, docs in docs.items() if not docs]
+    
+    if missing: 
+        raise ValueError(f"Missing required documents for feedback generation: {', '.join(missing)}")
+    
+    # 2. Extract Content
+    brief_text = docs["Assessment Brief"].get("content", "")
+    rubric_text = docs["Assessment Rubric"].get("content", "")
+    
+    # 3. Call AI
+    feedback_prompt = """
+        "You are an examiner grading viva answers using only the provided context from the assessment brief and rubric."
+        "Given the viva questions and the student's answers, provide concise feedback grounded in the text. "
+        "If the text does not support an answer, call that out. "
+        "Output:\n\n"
+        "### FEEDBACK\n"
+        "- Summary: <one short sentence>\n"
+        "- Per question: Q1 <feedback>; Q2 <feedback>; Q3 <feedback>\n\n"
+        "### SOURCES\n"
+        "<one source per line, with text from the retrieved chunk sources and the specific line they come from>\n"
+    """
+    
+    qa_text = "\n".join(
+        [f"Q{i + 1}: {questions[i]}\nA{i + 1}: {answers[i]}" for i in range(
+            len(questions))]
+    )
+    
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": feedback_prompt},
+            {"role": "user", "content": f"CONTEXT: \n Assessment Brief: {brief_text} \n Assessment Rubric: {rubric_text} \n\n Questions and Answers:\n{qa_text}"},
+        ],
+    ).choices[0].message.content.strip()
+    return response
+
