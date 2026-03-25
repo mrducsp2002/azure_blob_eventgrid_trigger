@@ -88,7 +88,7 @@ def generate_iviva_feedback(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('HTTP Trigger: Processing IVIVA Feedback Generation.')
     
     try: 
-        req_body = req.get.json()
+        req_body = req.get_json()
         unit_code = req_body.get('unit_code')
         session_year = req_body.get('session_year')
         assignment = req_body.get('assignment')
