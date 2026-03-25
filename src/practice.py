@@ -25,7 +25,7 @@ GUIDANCE_BLOB = "comp1010_assignment2_s22025.pdf"
 
 GRADING_SYSTEM_PROMPT = (
     "You are an examiner grading viva answers using only the provided document text. "
-    "Given the viva questions and the student's answers, provide concise feedback grounded in the text and a score out of 10. "
+    "Given the viva questions and the student's answers, provide concise feedback grounded in the text. "
     "If the text does not support an answer, call that out. "
     "Output:\n\n"
     "### FEEDBACK\n"
