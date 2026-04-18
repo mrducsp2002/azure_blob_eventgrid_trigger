@@ -124,6 +124,32 @@ def get_student_assignments(unit_code: str, session_year: str, assignment: str):
     )
 
 
+def get_latest_student_assignments(unit_code: str, session_year: str, assignment: str):
+    """
+    Get the most recent assignment submission per student.
+    Groups by student_id and returns only the latest timestamp.
+    """
+    db = get_mongo_db()
+    return db["iviva-student-assignments"].aggregate([
+        {
+            "$match": {
+                "unit_code": _norm(unit_code),
+                "session_year": _norm(session_year),
+                "assignment": _norm(assignment),
+            }
+        },
+        {"$sort": {"timestamp": -1}},
+        {
+            "$group": {
+                "_id": "$student_id",
+                "latest_doc": {"$first": "$$ROOT"}
+            }
+        },
+        {"$replaceRoot": {"newRoot": "$latest_doc"}},
+        {"$project": {"student_id": 1, "_id": 1}}
+    ])
+
+
 def store_generated_questions(collection, metadata: dict, questions: list, reference: list):
     """
     Upserts generated questions for a student.

@@ -10,6 +10,7 @@ from psycopg2.extras import execute_values
 from src.database import (
     get_mongo_db,
     get_student_assignments,
+    get_latest_student_assignments,
     get_staff_document,
     store_document,
     store_generated_questions,
@@ -585,7 +586,7 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
     connection_string = os.environ.get("SERVICEBUS_CONNECTION")
     if not connection_string:
         raise ValueError("SERVICEBUS_CONNECTION is not configured.")
-    student_cursor = get_student_assignments(
+    student_cursor = get_latest_student_assignments(
         unit_code=unit_code,
         session_year=session_year,
         assignment=assignment,
