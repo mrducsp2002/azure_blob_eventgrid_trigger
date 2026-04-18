@@ -46,6 +46,7 @@ def store_document(collection, metadata: dict, content: str, source_blob: str):
     staff_id = _norm(metadata.get('staff_id'))
     alternate_questions = metadata.get('alternate_questions')
     seed_items = metadata.get('seed_items')
+    now_ts = datetime.now(timezone.utc).isoformat()
 
     # 1. Base Document (Fields shared by EVERYONE)
     document = {
@@ -54,11 +55,12 @@ def store_document(collection, metadata: dict, content: str, source_blob: str):
         "session_year": session_year,
         "content": content,
         "source_blob": source_blob,
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": now_ts
     }
 
 
-    # 2. Determine ID and Role based on Student ID presence
+    # 2. Determine a stable ID for idempotent upload/overwrite behavior.
+    # Overwriting the same logical artifact updates the existing record.
     if student_id:
         doc_id = f"{student_id}_{unit_code}_{assignment}_{session_year}"
         document["student_id"] = student_id  # Add student_id

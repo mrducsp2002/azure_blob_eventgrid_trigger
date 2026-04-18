@@ -607,8 +607,9 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
                 student_id = doc.get("student_id")
                 if not student_id:
                     continue
-                if has_generated_questions(student_id, unit_code, assignment, session_year):
-                    continue
+                # Comment out to newly generate a question set
+                # if has_generated_questions(student_id, unit_code, assignment, session_year):
+                #     continue
                 payload = {
                     "student_id": student_id,
                     "unit_code": unit_code,
