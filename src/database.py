@@ -62,10 +62,10 @@ def store_document(collection, metadata: dict, content: str, source_blob: str):
     # 2. Determine a stable ID for idempotent upload/overwrite behavior.
     # Overwriting the same logical artifact updates the existing record.
     if student_id:
-        doc_id = f"{student_id}_{unit_code}_{assignment}_{session_year}"
+        doc_id = f"{student_id}_{unit_code}_{assignment}_{session_year}_{now_ts}"
         document["student_id"] = student_id  # Add student_id
     else:
-        doc_id = f"{unit_code}_{assignment}_{session_year}"
+        doc_id = f"{unit_code}_{assignment}_{session_year}_{now_ts}"
     if staff_id:
         document["staff_id"] = staff_id
     if isinstance(alternate_questions, list):
@@ -138,6 +138,7 @@ def store_generated_questions(collection, metadata: dict, questions: list, refer
     assignment = _norm(metadata.get("assignment"))
     session_year = _norm(metadata.get("session_year"))
     student_id = _norm(metadata.get("student_id"))
+    now_ts = datetime.now(timezone.utc).isoformat()
 
     document = {
         "unit_code": unit_code,
@@ -146,17 +147,13 @@ def store_generated_questions(collection, metadata: dict, questions: list, refer
         "student_id": student_id,
         "questions": questions,
         "reference": reference,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_ts,
     }
-    doc_id = f"{student_id}_{unit_code}_{assignment}_{session_year}"
+    doc_id = f"{student_id}_{unit_code}_{assignment}_{session_year}_{now_ts}"
     document["_id"] = doc_id
 
     try:
-        collection.replace_one(
-            filter={"_id": doc_id},
-            replacement=document,
-            upsert=True,
-        )
+        collection.insert_one(document)
         logging.info(f"Stored generated questions for: {doc_id}")
     except Exception as e:
         logging.error(f"Database error for {doc_id}: {e}")
@@ -164,8 +161,15 @@ def store_generated_questions(collection, metadata: dict, questions: list, refer
 
 def has_generated_questions(student_id: str, unit_code: str, assignment: str, session_year: str) -> bool:
     db = get_mongo_db()
-    doc_id = f"{_norm(student_id)}_{_norm(unit_code)}_{_norm(assignment)}_{_norm(session_year)}"
-    return db["iviva-staff-generated-questions"].find_one({"_id": doc_id}) is not None
+    return db["iviva-staff-generated-questions"].find_one(
+        {
+            "student_id": _norm(student_id),
+            "unit_code": _norm(unit_code),
+            "assignment": _norm(assignment),
+            "session_year": _norm(session_year),
+        },
+        {"_id": 1},
+    ) is not None
 
 
 def get_staff_document(collection_name: str, unit_code: str, session_year: str, assignment: str | None = None):

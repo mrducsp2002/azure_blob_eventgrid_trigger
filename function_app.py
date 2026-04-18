@@ -11,7 +11,6 @@ from src.database import (
     get_mongo_db,
     get_student_assignments,
     get_staff_document,
-    has_generated_questions,
     store_document,
     store_generated_questions,
 )
@@ -695,24 +694,6 @@ def question_generation_queue(msg: func.ServiceBusMessage):
     if not all([student_id, unit_code, assignment, session_year]):
         logging.error("Queue payload missing required fields.")
         return
-
-    if has_generated_questions(student_id, unit_code, assignment, session_year):
-        try:
-            if _has_postgres_questions(student_id, unit_code, assignment, session_year):
-                logging.info(
-                    f"Questions already generated for {student_id}_{unit_code}_{assignment}_{session_year}."
-                )
-                return
-            logging.warning(
-                f"Generated marker exists but Postgres rows missing for "
-                f"{student_id}_{unit_code}_{assignment}_{session_year}; retrying generation."
-            )
-        except Exception as e:
-            logging.error(
-                f"Unable to verify Postgres generated rows for "
-                f"{student_id}_{unit_code}_{assignment}_{session_year}: {e}"
-            )
-            return
 
     try:
         result = generate_questions_logic(
