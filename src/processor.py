@@ -56,7 +56,10 @@ def _process_zip_file(zip_bytes: bytes, blob_name: str, collection):
             if len(parts) < 2:
                 continue
 
-            student_id = parts[1].split('-')[0].strip().lower()  # Extract student ID
+            student_folder = parts[0].strip()
+            student_id = os.path.splitext(student_folder)[0].split('-')[0].strip().lower()
+            if not student_id:
+                continue
             file_name = parts[-1]
 
             try:
