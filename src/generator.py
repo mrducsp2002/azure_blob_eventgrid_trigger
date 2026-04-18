@@ -100,12 +100,8 @@ def generate_questions_logic(student_id, unit_code, session, assignment=None, as
         }}
         """
 
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"""
+    # Build user message for request
+    user_message_content = f"""
                 CONTEXT:
                 Assessment brief: {brief_text}
                 Assessment rubric: {rubric_text}
@@ -114,7 +110,31 @@ def generate_questions_logic(student_id, unit_code, session, assignment=None, as
                 {format_seed_questions(seed_questions)}
 
                 Now generate {len(seed_questions)} personalized questions given the context above and follow the seed questions structure.
-            """}
+            """
+
+    # Log OpenAI request metadata (production-safe)
+    logging.info(
+        "OpenAI request - student_id=%s model=gpt-4o response_format=json_object system_prompt_chars=%d user_message_chars=%d seed_count=%d",
+        student_id,
+        len(system_prompt),
+        len(user_message_content),
+        len(seed_questions),
+    )
+
+    # Debug: log full messages if environment variable enabled
+    if os.getenv("DEBUG_OPENAI_MESSAGES", "false").lower() == "true":
+        logging.debug(
+            "OpenAI debug - system_prompt: %s..., user_message: %s...",
+            system_prompt[:500],
+            user_message_content[:500],
+        )
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message_content}
         ]
     )
 
