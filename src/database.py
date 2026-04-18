@@ -57,6 +57,7 @@ def store_document(collection, metadata: dict, content: str, source_blob: str):
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
+
     # 2. Determine ID and Role based on Student ID presence
     if student_id:
         doc_id = f"{student_id}_{unit_code}_{assignment}_{session_year}"
