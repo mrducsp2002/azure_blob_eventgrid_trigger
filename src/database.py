@@ -188,7 +188,7 @@ def get_staff_document(collection_name: str, unit_code: str, session_year: str, 
         }
         return db[collection_name].find_one(ci_query, sort=[("timestamp", -1)])
 
-    doc = db[collection_name].find_one(query)
+    doc = db[collection_name].find_one(query, sort=[("timestamp", -1)])
     if doc:
         return doc
 
