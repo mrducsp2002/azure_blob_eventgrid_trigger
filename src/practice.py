@@ -8,7 +8,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from azure.storage.blob import BlobServiceClient
-from openai import AzureOpenAI
+from anthropic import AnthropicFoundry
 
 from src.database import (
     create_viva_session,
@@ -35,10 +35,9 @@ GRADING_SYSTEM_PROMPT = (
     "<one source per line, with text from the retrieved chunk sources and the specific line they come from>\n"
 )
 
-_client = AzureOpenAI(
-    api_version="2024-12-01-preview",
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", "https://iviva.cognitiveservices.azure.com/"),
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+_client = AnthropicFoundry(
+    api_key=os.getenv("CLAUDE_API_KEY"),
+    base_url=os.getenv("CLAUDE_ENDPOINT"),
 )
 _GRADE_RETRIES = max(1, int(os.getenv("GRADE_RETRIES", "2")))
 _GRADE_RETRY_DELAY_SEC = max(0.0, float(os.getenv("GRADE_RETRY_DELAY_SEC", "0.8")))
@@ -74,14 +73,15 @@ def _grade_answers(document_text: str, questions: List[str], answers: List[str])
     qa_text = "\n".join(
         [f"Q{i + 1}: {questions[i]}\nA{i + 1}: {answers[i]}" for i in range(len(questions))]
     )
-    completion = _client.chat.completions.create(
-        model="gpt-4o",
+    completion = _client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2048,
+        system=GRADING_SYSTEM_PROMPT,
         messages=[
-            {"role": "system", "content": GRADING_SYSTEM_PROMPT},
             {"role": "user", "content": f"Document:\n{document_text}\n\nQuestions and Answers:\n{qa_text}"},
         ],
     )
-    feedback = completion.choices[0].message.content.strip()
+    feedback = completion.content[0].text.strip()
     score = _extract_score(feedback)
     return feedback, score
 
@@ -110,23 +110,21 @@ def _grade_answers_with_retry(document_text: str, questions: List[str], answers:
 
 
 def _clarify_question(document_text: str, question: str, user_message: str) -> str:
-    completion = _client.chat.completions.create(
-        model="gpt-4o",
+    completion = _client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1024,
+        system=(
+            "You are a friendly examiner. Clarify the current viva question using the document text. "
+            "Keep it brief and stay focused on what the question is asking."
+        ),
         messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a friendly examiner. Clarify the current viva question using the document text. "
-                    "Keep it brief and stay focused on what the question is asking."
-                ),
-            },
             {
                 "role": "user",
                 "content": f"Document:\n{document_text}\n\nCurrent question: {question}\nStudent request: {user_message}",
             },
         ],
     )
-    return completion.choices[0].message.content.strip()
+    return completion.content[0].text.strip()
 
 
 def start_viva_session(payload: Dict[str, Any]) -> Dict[str, Any]:

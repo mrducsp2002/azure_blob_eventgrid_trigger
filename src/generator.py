@@ -2,15 +2,14 @@ import logging
 import json
 import os
 import re
-from openai import AzureOpenAI
+from anthropic import AnthropicFoundry
 from src.database import get_student_assignment, get_staff_document
 from typing import Any, Dict, List, Optional, Tuple
 
-# Initialize OpenAI 
-client = AzureOpenAI(
-    api_version="2024-12-01-preview",
-    azure_endpoint="https://iviva.cognitiveservices.azure.com/",
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+# Initialize Anthropic Claude
+client = AnthropicFoundry(
+    api_key=os.getenv("CLAUDE_API_KEY"),
+    base_url=os.getenv("CLAUDE_ENDPOINT"),
 )
 
 def generate_questions_logic(student_id, unit_code, session, assignment=None, assignment_text=None):
@@ -112,9 +111,9 @@ def generate_questions_logic(student_id, unit_code, session, assignment=None, as
                 Now generate {len(seed_questions)} personalized questions given the context above and follow the seed questions structure.
             """
 
-    # Log OpenAI request metadata (production-safe)
+    # Log Claude request metadata (production-safe)
     logging.info(
-        "OpenAI request - student_id=%s model=gpt-4o response_format=json_object system_prompt_chars=%d user_message_chars=%d seed_count=%d",
+        "Claude request - student_id=%s model=claude-sonnet-4-6 system_prompt_chars=%d user_message_chars=%d seed_count=%d",
         student_id,
         len(system_prompt),
         len(user_message_content),
@@ -122,24 +121,58 @@ def generate_questions_logic(student_id, unit_code, session, assignment=None, as
     )
 
     # Debug: log full messages if environment variable enabled
-    if os.getenv("DEBUG_OPENAI_MESSAGES", "false").lower() == "true":
+    if os.getenv("DEBUG_CLAUDE_MESSAGES", "false").lower() == "true":
         logging.debug(
-            "OpenAI debug - system_prompt: %s..., user_message: %s...",
+            "Claude debug - system_prompt: %s..., user_message: %s...",
             system_prompt[:500],
             user_message_content[:500],
         )
 
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        response_format={"type": "json_object"},
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2048,
+        system=system_prompt,
         messages=[
-            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message_content}
-        ]
+        ],
     )
 
     # Return the parsed JSON object directly
-    return json.loads(response.choices[0].message.content)
+    return _parse_json_response(response.content[0].text, ["student_id", "questions", "reference"])
+
+
+def _parse_json_response(raw_text: str, required_keys: List[str]) -> Dict[str, Any]:
+    """
+    Parse model output into JSON and validate required keys.
+    Handles common wrappers such as markdown code fences and extra prose.
+    """
+    text = (raw_text or "").strip()
+
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("Model response did not contain a valid JSON object.")
+        payload = json.loads(text[start : end + 1])
+
+    if not isinstance(payload, dict):
+        raise ValueError("Model response JSON must be an object.")
+
+    missing_keys = [key for key in required_keys if key not in payload]
+    if missing_keys:
+        raise ValueError(f"Model response JSON missing keys: {', '.join(missing_keys)}")
+
+    return payload
 
 
 def _parse_seed_questions(seed_text: str) -> list:
@@ -181,11 +214,11 @@ def regenerate_questions_logic(current_question, user_comment):
         }}
         """
 
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        response_format={"type": "json_object"},
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2048,
+        system=system_prompt,
         messages=[
-            {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"""
                 CURRENT QUESTION:
                 {current_question}
@@ -193,11 +226,11 @@ def regenerate_questions_logic(current_question, user_comment):
                 USER COMMENT:
                 {user_comment}
             """}
-        ]
+        ],
     )
 
     # Return the parsed JSON object directly
-    return json.loads(response.choices[0].message.content)
+    return _parse_json_response(response.content[0].text, ["regenerated_question", "explanation"])
 
 def generate_feedback(unit_code: str, session: str, assignment:str, questions: List[str], answers: List[str]) -> str:
     """
@@ -247,12 +280,13 @@ def generate_feedback(unit_code: str, session: str, assignment:str, questions: L
             len(questions))]
     )
     
-    response = client.chat.completions.create(
-        model="gpt-4o",
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2048,
+        system=feedback_prompt,
         messages=[
-            {"role": "system", "content": feedback_prompt},
             {"role": "user", "content": f"CONTEXT: \n Assessment Brief: {brief_text} \n Assessment Rubric: {rubric_text} \n\n Questions and Answers:\n{qa_text}"},
         ],
-    ).choices[0].message.content.strip()
+    ).content[0].text.strip()
     return response
 
