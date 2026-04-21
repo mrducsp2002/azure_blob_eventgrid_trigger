@@ -56,7 +56,7 @@ def _process_zip_file(zip_bytes: bytes, blob_name: str, collection):
             if len(parts) < 2:
                 continue
 
-            student_id = parts[0].split('-')[0].strip().lower()  # Extract student ID
+            student_id = parts[1 if len(parts) >= 3 else 0].split('-')[0].strip().lower()
             file_name = parts[-1]
 
             try:
