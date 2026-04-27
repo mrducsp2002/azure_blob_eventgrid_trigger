@@ -53,8 +53,11 @@ def _process_zip_file(zip_bytes: bytes, blob_name: str, collection):
 
             # ZIP Logic: Expects "StudentID/filename.ext"
             parts = file_path.split('/')
-            if len(parts) < 2:
-                continue
+            # Add guard rails for unusual file structures, failed
+            if len(parts) < 3:
+                raise ValueError(
+                    f"File '{file_path}' could not be parsed. Expected comp1000... .zip / 47911100_... (file)/submission.pdf/docx (3 levels, no more no less), got {len(parts)}."
+    )
 
             student_id = parts[1 if len(parts) >= 3 else 0].split('-')[0].strip().lower()
             file_name = parts[-1]
