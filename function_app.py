@@ -408,6 +408,65 @@ def _get_or_create_question_set(
     return cur.fetchone()[0]
 
 
+def _set_question_set_processing_status(
+    unit_code: str,
+    assignment: str,
+    session_year: str,
+    staff_id: str | None,
+    expected_submission_count: int,
+) -> str:
+    with _get_postgres_connection() as conn:
+        with conn.cursor() as cur:
+            question_set_id = _get_or_create_question_set(
+                cur,
+                unit_code=unit_code,
+                assignment=assignment,
+                session_year=session_year,
+                staff_id=staff_id,
+            )
+            cur.execute(
+                'UPDATE "PersonalisedQuestionSets" '
+                'SET "status" = %s, "expectedStudentCount" = %s '
+                'WHERE "questionSetId" = %s',
+                ("PROCESSING", expected_submission_count, question_set_id),
+            )
+            return question_set_id
+
+
+def _try_mark_question_set_completed(
+    cur,
+    question_set_id: str,
+    expected_submission_count: int | None,
+):
+    if not expected_submission_count or expected_submission_count <= 0:
+        return
+
+    cur.execute(
+        'SELECT COUNT(DISTINCT "studentId") '
+        'FROM "PersonalisedQuestions" '
+        'WHERE "questionSetId" = %s AND "studentId" IS NOT NULL',
+        (question_set_id,),
+    )
+    row = cur.fetchone()
+    completed_count = int(row[0] or 0) if row else 0
+    if completed_count < expected_submission_count:
+        return
+
+    cur.execute(
+        'UPDATE "PersonalisedQuestionSets" '
+        'SET "status" = %s '
+        'WHERE "questionSetId" = %s AND "status" <> %s',
+        ("COMPLETED", question_set_id, "COMPLETED"),
+    )
+    if cur.rowcount:
+        logging.info(
+            "Question set %s marked COMPLETED (%s/%s students).",
+            question_set_id,
+            completed_count,
+            expected_submission_count,
+        )
+
+
 def _store_questions_postgres(
     student_id: str,
     unit_code: str,
@@ -417,6 +476,7 @@ def _store_questions_postgres(
     questions: list,
     reference: list,
     alternate_questions: list | None = None,
+    expected_submission_count: int | None = None,
 ):
     if not questions:
         return
@@ -473,6 +533,13 @@ def _store_questions_postgres(
                     '("questionId", "questionText", "referenceText", "questionSetId", "studentId", "alternateQuestion") VALUES %s',
                     rows_with_set,
                 )
+
+                _try_mark_question_set_completed(
+                    cur,
+                    question_set_id=question_set_id,
+                    expected_submission_count=expected_submission_count,
+                )
+
                 # For summative/normal flow, ensure each student has one session for this question set.
                 # Idempotent: only create when no existing session links this student to the set.
                 if include_student_id:
@@ -597,16 +664,38 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
         session_year=session_year,
         assignment=assignment,
     )
-    staff_id = _normalize_meta((seed_doc or {}).get("staff_id")) if seed_doc else None
+    staff_id = _normalize_meta((seed_doc or {}).get("staff_id") or "") if seed_doc else None
     alternate_questions = (seed_doc or {}).get("alternate_questions") if seed_doc else []
+
+    student_ids: list[str] = []
+    for doc in student_cursor:
+        student_id = _normalize_meta(doc.get("student_id"))
+        if student_id:
+            student_ids.append(student_id)
+
+    expected_submission_count = len(student_ids)
+    if expected_submission_count == 0:
+        logging.warning(
+            f"No student submissions found for {unit_code}_{assignment}_{session_year}; skipping queue."
+        )
+        return
+
+    try:
+        question_set_id = _set_question_set_processing_status(
+            unit_code=unit_code,
+            assignment=assignment,
+            session_year=session_year,
+            staff_id=staff_id,
+            expected_submission_count=expected_submission_count,
+        )
+    except Exception as e:
+        logging.error(f"Failed to initialize question set status: {e}", exc_info=True)
+        raise
 
     enqueued = 0
     with ServiceBusClient.from_connection_string(connection_string) as client:
         with client.get_queue_sender(_QUESTION_QUEUE_NAME) as sender:
-            for doc in student_cursor:
-                student_id = doc.get("student_id")
-                if not student_id:
-                    continue
+            for submission_index, student_id in enumerate(student_ids, start=1):
                 # Comment out to newly generate a question set
                 # if has_generated_questions(student_id, unit_code, assignment, session_year):
                 #     continue
@@ -617,6 +706,9 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
                     "session_year": session_year,
                     "staff_id": staff_id,
                     "alternate_questions": alternate_questions,
+                    "question_set_id": question_set_id,
+                    "expected_submission_count": expected_submission_count,
+                    "submission_index": submission_index,
                 }
                 sender.send_messages(ServiceBusMessage(json.dumps(payload)))
                 enqueued += 1
@@ -691,10 +783,32 @@ def question_generation_queue(msg: func.ServiceBusMessage):
     session_year = payload.get("session_year")
     staff_id = payload.get("staff_id")
     alternate_questions = payload.get("alternate_questions") or []
+    expected_submission_count = payload.get("expected_submission_count")
+    submission_index = payload.get("submission_index")
+
+    try:
+        expected_submission_count = int(expected_submission_count) if expected_submission_count is not None else None
+    except (TypeError, ValueError):
+        expected_submission_count = None
+
+    try:
+        submission_index = int(submission_index) if submission_index is not None else None
+    except (TypeError, ValueError):
+        submission_index = None
 
     if not all([student_id, unit_code, assignment, session_year]):
         logging.error("Queue payload missing required fields.")
         return
+
+    if submission_index and expected_submission_count:
+        logging.info(
+            "Question generation processing student %s/%s (student_id=%s).",
+            submission_index,
+            expected_submission_count,
+            student_id,
+        )
+    else:
+        logging.info("Question generation processing student_id=%s.", student_id)
 
     try:
         result = generate_questions_logic(
@@ -716,6 +830,7 @@ def question_generation_queue(msg: func.ServiceBusMessage):
                 questions=questions,
                 reference=reference,
                 alternate_questions=alternate_questions,
+                expected_submission_count=expected_submission_count,
             )
         except Exception as e:
             logging.error(f"Postgres insert failed: {e}", exc_info=True)

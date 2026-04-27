@@ -2,6 +2,7 @@ import io
 import os
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
+import logging
 
 ENDPOINT = os.environ.get("DOCUMENT_INTELLIGENCE_ENDPOINT")
 KEY = os.environ.get("DOCUMENT_INTELLIGENCE_KEY")
@@ -12,7 +13,7 @@ def decode_file_content(file_name: str, content: bytes) -> str:
     file_ext = os.path.splitext(file_name)[1].lower().strip('.')
     text_result = ""
 
-    azure_supported_exts = ['pdf', 'docx', 'md']
+    azure_supported_exts = ['pdf', 'docx', 'doc', 'md']
 
     try:
         if file_ext in azure_supported_exts:
@@ -26,17 +27,6 @@ def decode_file_content(file_name: str, content: bytes) -> str:
             result = poller.result()
 
             text_result = result.content
-
-        # elif file_ext == 'docx':
-        #     doc = Document(file_stream)
-        #     full_text = []
-        #     for para in doc.paragraphs:
-        #         full_text.append(para.text)
-        #     for table in doc.tables:
-        #         for row in table.rows:
-        #             row_text = " | ".join([cell.text for cell in row.cells])
-        #             full_text.append(row_text)
-        #     text_result = "\n".join(full_text)
 
         else:
             # Fallback for code files / text files
