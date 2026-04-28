@@ -60,6 +60,8 @@ def _process_zip_file(zip_bytes: bytes, blob_name: str, collection):
     )
 
             student_id = parts[1 if len(parts) >= 3 else 0].split('-')[0].strip().lower()
+            if not (len(student_id) == 8 and student_id.isdigit()):
+                raise ValueError(f"Student ID '{student_id}' in file name must be exactly 8 digits. Please rename the file to include the correct student ID.")
             file_name = parts[-1]
 
             try:
@@ -70,8 +72,7 @@ def _process_zip_file(zip_bytes: bytes, blob_name: str, collection):
                         formatted_chunk = f"\n\n--- START FILE: {file_name} ---\n{text_chunk}"
                         student_buffers[student_id].append(formatted_chunk)
             except Exception as e:
-                logging.error(f"Error reading {file_path}: {e}")
-                continue
+                raise ValueError(f"Error processing file '{file_path}': {e}")
 
     # Save Student Data
     for student_id, text_parts in student_buffers.items():
@@ -97,8 +98,7 @@ def _process_single_file(file_bytes: bytes, blob_name: str, collection):
     text_content = decode_file_content(blob_name, file_bytes)
 
     if not text_content:
-        logging.warning(f"File {blob_name} was empty or could not be decoded.")
-        return
+        raise ValueError(f"File {blob_name} was empty or could not be decoded.")
 
     # 3. Store
     store_document(collection, metadata, text_content, blob_name)
