@@ -449,6 +449,7 @@ def _set_question_set_processing_status(
                 'WHERE "questionSetId" = %s',
                 ("PROCESSING", expected_submission_count, question_set_id),
             )
+            conn.commit()
             return question_set_id
 
 
@@ -485,6 +486,7 @@ def _append_question_set_error(
                 'WHERE "questionSetId" = %s',
                 ("", formatted, formatted, "UNSUCCESSFUL", question_set_id),
             )
+        conn.commit()
 
 
 def _try_mark_question_set_completed(
@@ -650,6 +652,7 @@ def _store_questions_postgres(
                             resolved_question_set_id,
                         ),
                     )
+            conn.commit()
 
     effective_staff_id = staff_id
     include_student_id = True
