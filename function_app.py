@@ -561,8 +561,8 @@ def _store_questions_postgres(
                 violations = []
                 if effective_staff_id:
                     cur.execute(
-                        'SELECT 1 FROM "Users" WHERE "userId" = %s',
-                        (effective_staff_id,),
+                        'SELECT 1 FROM "Users" WHERE "schoolId" = %s OR "userId"::text = %s',
+                        (effective_staff_id, effective_staff_id),
                     )
                     if cur.fetchone() is None:
                         violations.append(
@@ -570,8 +570,8 @@ def _store_questions_postgres(
                         )
                 if include_student_id:
                     cur.execute(
-                        'SELECT 1 FROM "Users" WHERE "userId" = %s',
-                        (student_id,),
+                        'SELECT 1 FROM "Users" WHERE "schoolId" = %s OR "userId"::text = %s',
+                        (student_id, student_id),
                     )
                     if cur.fetchone() is None:
                         violations.append(
