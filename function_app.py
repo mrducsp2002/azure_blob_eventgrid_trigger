@@ -825,18 +825,20 @@ def student_assignments_upload(myblob: func.InputStream):
         _handle_blob_event(myblob, target_collection_name="iviva-student-assignments")
     except BlobProcessingError as be:
         metadata = be.metadata
+        unit_code = metadata.get("unit_code") or ""
+        assignment = metadata.get("assignment") or ""
+        session_year = metadata.get("session_year") or ""
+        
         with _get_postgres_connection() as conn:
             with conn.cursor() as cur:
-                question_set_id = _create_question_set(
-                    cur,
-                    unit_code=metadata.get("unit_code") or "",
-                    assignment=metadata.get("assignment") or "",
-                    session_year=metadata.get("session_year") or "",
+                question_set_id = _get_or_create_question_set(
+                    cur, unit_code, assignment, session_year
                 )
+        
         _append_question_set_error(
-            unit_code=metadata.get("unit_code") or "",
-            assignment=metadata.get("assignment") or "",
-            session_year=metadata.get("session_year") or "",
+            unit_code=unit_code,
+            assignment=assignment,
+            session_year=session_year,
             message=str(be),
             question_set_id=question_set_id,
         )
@@ -859,18 +861,20 @@ def brief_upload(myblob: func.InputStream):
             myblob, target_collection_name="iviva-staff-assessment-brief")
     except BlobProcessingError as be:
         metadata = be.metadata
+        unit_code = metadata.get("unit_code") or ""
+        assignment = metadata.get("assignment") or ""
+        session_year = metadata.get("session_year") or ""
+        
         with _get_postgres_connection() as conn:
             with conn.cursor() as cur:
-                question_set_id = _create_question_set(
-                    cur,
-                    unit_code=metadata.get("unit_code") or "",
-                    assignment=metadata.get("assignment") or "",
-                    session_year=metadata.get("session_year") or "",
+                question_set_id = _get_or_create_question_set(
+                    cur, unit_code, assignment, session_year
                 )
+        
         _append_question_set_error(
-            unit_code=metadata.get("unit_code") or "",
-            assignment=metadata.get("assignment") or "",
-            session_year=metadata.get("session_year") or "",
+            unit_code=unit_code,
+            assignment=assignment,
+            session_year=session_year,
             message=str(be),
             question_set_id=question_set_id,
         )
@@ -887,18 +891,20 @@ def rubric_upload(myblob: func.InputStream):
             myblob, target_collection_name="iviva-staff-assessment-rubrics")
     except BlobProcessingError as be:
         metadata = be.metadata
+        unit_code = metadata.get("unit_code") or ""
+        assignment = metadata.get("assignment") or ""
+        session_year = metadata.get("session_year") or ""
+        
         with _get_postgres_connection() as conn:
             with conn.cursor() as cur:
-                question_set_id = _create_question_set(
-                    cur,
-                    unit_code=metadata.get("unit_code") or "",
-                    assignment=metadata.get("assignment") or "",
-                    session_year=metadata.get("session_year") or "",
+                question_set_id = _get_or_create_question_set(
+                    cur, unit_code, assignment, session_year
                 )
+        
         _append_question_set_error(
-            unit_code=metadata.get("unit_code") or "",
-            assignment=metadata.get("assignment") or "",
-            session_year=metadata.get("session_year") or "",
+            unit_code=unit_code,
+            assignment=assignment,
+            session_year=session_year,
             message=str(be),
             question_set_id=question_set_id,
         )
