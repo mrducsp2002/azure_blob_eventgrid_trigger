@@ -433,6 +433,45 @@ def _set_question_set_processing_status(
             return question_set_id
 
 
+def _append_question_set_error(
+    unit_code: str | None,
+    assignment: str | None,
+    session_year: str | None,
+    message: str,
+):
+    unit_code = _normalize_meta(unit_code or "")
+    assignment = _normalize_assignment(assignment or "")
+    session_year = _normalize_session(session_year or "")
+    if not all([unit_code, assignment, session_year]):
+        logging.warning(
+            "Skipping errorMessage update due to missing metadata: %s/%s/%s",
+            unit_code,
+            assignment,
+            session_year,
+        )
+        return
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    formatted = f"[{timestamp}] {message}"
+
+    with _get_postgres_connection() as conn:
+        with conn.cursor() as cur:
+            question_set_id = _get_or_create_question_set(
+                cur,
+                unit_code=unit_code,
+                assignment=assignment,
+                session_year=session_year,
+            )
+            cur.execute(
+                'UPDATE "PersonalisedQuestionSets" '
+                'SET "errorMessage" = CASE '
+                'WHEN "errorMessage" IS NULL OR "errorMessage" = %s THEN %s '
+                'ELSE "errorMessage" || E\'\\n\' || %s END '
+                'WHERE "questionSetId" = %s',
+                ("", formatted, formatted, question_set_id),
+            )
+
+
 def _try_mark_question_set_completed(
     cur,
     question_set_id: str,
@@ -729,7 +768,17 @@ def student_assignments_upload(myblob: func.InputStream):
     Azure Function triggered by Blob storage events via Event Grid.
     Processes the blob and saves to 'assignments' collection.
     """
-    _handle_blob_event(myblob, target_collection_name="iviva-student-assignments")
+    try:
+        _handle_blob_event(myblob, target_collection_name="iviva-student-assignments")
+    except ValueError as ve:
+        metadata = extract_batch_metadata(myblob.name)
+        _append_question_set_error(
+            unit_code=metadata.get("unit_code"),
+            assignment=metadata.get("assignment"),
+            session_year=metadata.get("session_year"),
+            message=str(ve),
+        )
+        raise
     metadata = extract_batch_metadata(myblob.name)
     _enqueue_generation_jobs(
         unit_code=metadata["unit_code"],
