@@ -6,12 +6,6 @@ from collections import defaultdict
 from src.parsers import decode_file_content
 from src.database import store_document
 
-
-class BlobProcessingError(ValueError):
-    def __init__(self, message: str, metadata: dict):
-        super().__init__(message)
-        self.metadata = metadata
-
 # TODO: Change approach to extrach metadata
 # Easier approach to extract metadata (for now). If necessary, pull the metadata being sent from the front end (what the conveyor has filled in instead of relying on naming convention)
 def extract_batch_metadata(blob_name: str) -> dict:
@@ -87,7 +81,7 @@ def _process_zip_file(zip_bytes: bytes, blob_name: str, collection):
 
     # If any errors were collected, raise them all together
     if errors:
-        raise BlobProcessingError("\n".join(errors), batch_metadata)
+        raise ValueError("\n".join(errors))
 
     # Save Student Data
     for student_id, text_parts in student_buffers.items():
@@ -113,10 +107,7 @@ def _process_single_file(file_bytes: bytes, blob_name: str, collection):
     text_content = decode_file_content(blob_name, file_bytes)
 
     if not text_content:
-        raise BlobProcessingError(
-            f"File {blob_name} was empty or could not be decoded.",
-            metadata,
-        )
+        raise ValueError(f"File {blob_name} was empty or could not be decoded.")
 
     # 3. Store
     store_document(collection, metadata, text_content, blob_name)

@@ -15,7 +15,7 @@ from src.database import (
     store_document,
     store_generated_questions,
 )
-from src.processor import process_blob_stream, extract_batch_metadata, BlobProcessingError
+from src.processor import process_blob_stream, extract_batch_metadata
 from src.generator import generate_questions_logic, regenerate_questions_logic, generate_feedback
 from src.practice import handle_viva_message, start_viva_session
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
@@ -322,8 +322,6 @@ def _handle_blob_event(myblob: func.InputStream, target_collection_name: str):
         blob_content = myblob.read()
 
         # 4. Process
-        if not myblob.name:
-            raise ValueError("Blob name is missing")
         process_blob_stream(blob_content, myblob.name, target_collection)
 
         logging.info(f"Successfully saved to {target_collection_name}")
@@ -363,33 +361,6 @@ def _get_postgres_connection():
     return psycopg2.connect(database_url)
 
 
-def _create_question_set(
-    cur,
-    unit_code: str,
-    assignment: str,
-    session_year: str,
-    staff_id: str | None = None,
-) -> str:
-    name = f"{unit_code}_{assignment}_{session_year}"
-    question_set_id = str(uuid.uuid4())
-    if staff_id:
-        cur.execute(
-            'INSERT INTO "PersonalisedQuestionSets" '
-            '("questionSetId", "name", "unitCode", "assessmentName", "staffId") '
-            'VALUES (%s, %s, %s, %s, %s) RETURNING "questionSetId"',
-            (question_set_id, name, unit_code, assignment, staff_id),
-        )
-        return cur.fetchone()[0]
-
-    cur.execute(
-        'INSERT INTO "PersonalisedQuestionSets" '
-        '("questionSetId", "name", "unitCode", "assessmentName") '
-        'VALUES (%s, %s, %s, %s) RETURNING "questionSetId"',
-        (question_set_id, name, unit_code, assignment),
-    )
-    return cur.fetchone()[0]
-
-
 def _get_or_create_question_set(
     cur,
     unit_code: str,
@@ -418,13 +389,23 @@ def _get_or_create_question_set(
             )
         return question_set_id
 
-    return _create_question_set(
-        cur,
-        unit_code=unit_code,
-        assignment=assignment,
-        session_year=session_year,
-        staff_id=staff_id,
-    )
+    question_set_id = str(uuid.uuid4())
+    if staff_id:
+        cur.execute(
+            'INSERT INTO "PersonalisedQuestionSets" '
+            '("questionSetId", "name", "unitCode", "assessmentName", "staffId") '
+            'VALUES (%s, %s, %s, %s, %s) RETURNING "questionSetId"',
+            (question_set_id, name, unit_code, assignment, staff_id),
+        )
+        return cur.fetchone()[0]
+    else:
+        cur.execute(
+            'INSERT INTO "PersonalisedQuestionSets" '
+            '("questionSetId", "name", "unitCode", "assessmentName") '
+            'VALUES (%s, %s, %s, %s) RETURNING "questionSetId"',
+            (question_set_id, name, unit_code, assignment),
+        )
+    return cur.fetchone()[0]
 
 
 def _set_question_set_processing_status(
@@ -449,42 +430,7 @@ def _set_question_set_processing_status(
                 'WHERE "questionSetId" = %s',
                 ("PROCESSING", expected_submission_count, question_set_id),
             )
-            conn.commit()
             return question_set_id
-
-
-def _append_question_set_error(
-    cur,
-    unit_code: str | None,
-    assignment: str | None,
-    session_year: str | None,
-    message: str,
-    question_set_id: str | None = None,
-):
-    unit_code = _normalize_meta(unit_code or "")
-    assignment = _normalize_assignment(assignment or "")
-    session_year = _normalize_session(session_year or "")
-    if not question_set_id:
-        logging.warning(
-            "Skipping errorMessage update due to missing question_set_id: %s/%s/%s",
-            unit_code,
-            assignment,
-            session_year,
-        )
-        return
-
-    timestamp = datetime.now(timezone.utc).isoformat()
-    formatted = f"[{timestamp}] {message}"
-
-    cur.execute(
-        'UPDATE "PersonalisedQuestionSets" '
-        'SET "errorMessage" = CASE '
-        'WHEN "errorMessage" IS NULL OR "errorMessage" = %s THEN %s '
-        'ELSE "errorMessage" || E\'\\n\' || %s END, '
-        '"status" = %s '
-        'WHERE "questionSetId" = %s',
-        ("", formatted, formatted, "UNSUCCESSFUL", question_set_id),
-    )
 
 
 def _try_mark_question_set_completed(
@@ -529,7 +475,6 @@ def _store_questions_postgres(
     staff_id: str | None,
     questions: list,
     reference: list,
-    question_set_id: str | None = None,
     alternate_questions: list | None = None,
     expected_submission_count: int | None = None,
 ):
@@ -552,52 +497,23 @@ def _store_questions_postgres(
     def _attempt_insert(effective_staff_id: str | None, include_student_id: bool):
         with _get_postgres_connection() as conn:
             with conn.cursor() as cur:
-                resolved_question_set_id = question_set_id or _get_or_create_question_set(
+                question_set_id = _get_or_create_question_set(
                     cur,
                     unit_code=unit_code,
                     assignment=assignment,
                     session_year=session_year,
                     staff_id=effective_staff_id,
                 )
-                violations = []
-                if effective_staff_id:
-                    cur.execute(
-                        'SELECT 1 FROM "Users" WHERE "schoolId" = %s OR "userId"::text = %s',
-                        (effective_staff_id, effective_staff_id),
-                    )
-                    if cur.fetchone() is None:
-                        violations.append(
-                            "Postgres FK violation on staffId (%s)." % effective_staff_id
-                        )
-                if include_student_id:
-                    cur.execute(
-                        'SELECT 1 FROM "Users" WHERE "schoolId" = %s OR "userId"::text = %s',
-                        (student_id, student_id),
-                    )
-                    if cur.fetchone() is None:
-                        violations.append(
-                            "Postgres FK violation on studentId (%s)." % student_id
-                        )
-                if violations:
-                    _append_question_set_error(
-                        cur,
-                        unit_code=unit_code,
-                        assignment=assignment,
-                        session_year=session_year,
-                        message="\n".join(violations),
-                        question_set_id=resolved_question_set_id,
-                    )
-                    raise ValueError("\n".join(violations))
                 # Idempotent behavior: replace existing generated rows for this student/set.
                 if include_student_id:
                     cur.execute(
                         'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s AND "studentId" = %s',
-                        (resolved_question_set_id, student_id),
+                        (question_set_id, student_id),
                     )
                 else:
                     cur.execute(
                         'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s AND "studentId" IS NULL',
-                        (resolved_question_set_id,),
+                        (question_set_id,),
                     )
 
                 rows_with_set = [
@@ -605,7 +521,7 @@ def _store_questions_postgres(
                         question_id,
                         question_text,
                         reference_text,
-                        resolved_question_set_id,
+                        question_set_id,
                         student_id if include_student_id else None,
                         alternate_text,
                     )
@@ -620,7 +536,7 @@ def _store_questions_postgres(
 
                 _try_mark_question_set_completed(
                     cur,
-                    question_set_id=resolved_question_set_id,
+                    question_set_id=question_set_id,
                     expected_submission_count=expected_submission_count,
                 )
 
@@ -645,13 +561,12 @@ def _store_questions_postgres(
                             student_id,
                             student_id,
                             str(uuid.uuid4()),
-                            resolved_question_set_id,
+                            question_set_id,
                             "READY_TO_START",
                             1,
-                            resolved_question_set_id,
+                            question_set_id,
                         ),
                     )
-            conn.commit()
 
     effective_staff_id = staff_id
     include_student_id = True
@@ -670,41 +585,23 @@ def _store_questions_postgres(
                 and "PersonalisedQuestionSets_staffId_fkey" in (constraint_name or "")
                 and effective_staff_id
             ):
-                with _get_postgres_connection() as conn:
-                    with conn.cursor() as cur:
-                        _append_question_set_error(
-                            cur,
-                            unit_code=unit_code,
-                            assignment=assignment,
-                            session_year=session_year,
-                            message=(
-                                "Postgres FK violation on staffId (%s). Aborting insert."
-                                % effective_staff_id
-                            ),
-                            question_set_id=question_set_id,
-                        )
-                    conn.commit()
-                raise
+                logging.warning(
+                    "Postgres FK violation on staffId (%s). Retrying without staffId.",
+                    effective_staff_id,
+                )
+                effective_staff_id = None
+                continue
             if (
                 is_fk_violation
                 and "PersonalisedQuestions_studentId_fkey" in (constraint_name or "")
                 and include_student_id
             ):
-                with _get_postgres_connection() as conn:
-                    with conn.cursor() as cur:
-                        _append_question_set_error(
-                            cur,
-                            unit_code=unit_code,
-                            assignment=assignment,
-                            session_year=session_year,
-                            message=(
-                                "Postgres FK violation on studentId (%s). Aborting insert."
-                                % student_id
-                            ),
-                            question_set_id=question_set_id,
-                        )
-                    conn.commit()
-                raise
+                logging.warning(
+                    "Postgres FK violation on studentId (%s). Retrying with NULL studentId.",
+                    student_id,
+                )
+                include_student_id = False
+                continue
             raise
 
 
@@ -825,36 +722,15 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
 @app.blob_trigger(
     arg_name="myblob", 
     path="iviva-student-assignments/{name}", 
+    source="EventGrid",
     connection="AzureWebJobsStorage")
 def student_assignments_upload(myblob: func.InputStream):
     """
     Azure Function triggered by Blob storage events via Event Grid.
     Processes the blob and saves to 'assignments' collection.
     """
-    try:
-        _handle_blob_event(myblob, target_collection_name="iviva-student-assignments")
-    except BlobProcessingError as be:
-        metadata = be.metadata
-        unit_code = metadata.get("unit_code") or ""
-        assignment = metadata.get("assignment") or ""
-        session_year = metadata.get("session_year") or ""
-        
-        with _get_postgres_connection() as conn:
-            with conn.cursor() as cur:
-                question_set_id = _get_or_create_question_set(
-                    cur, unit_code, assignment, session_year
-                )
-                _append_question_set_error(
-                    cur,
-                    unit_code=unit_code,
-                    assignment=assignment,
-                    session_year=session_year,
-                    message=str(be),
-                    question_set_id=question_set_id,
-                )
-            conn.commit()
-        return
-    metadata = extract_batch_metadata(myblob.name or "")
+    _handle_blob_event(myblob, target_collection_name="iviva-student-assignments")
+    metadata = extract_batch_metadata(myblob.name)
     _enqueue_generation_jobs(
         unit_code=metadata["unit_code"],
         assignment=metadata["assignment"],
@@ -865,63 +741,21 @@ def student_assignments_upload(myblob: func.InputStream):
 @app.function_name(name="BriefUpload")
 @app.blob_trigger(arg_name="myblob", 
                   path="iviva-staff-assessment-brief/{name}", 
+                  source="EventGrid",
                   connection="AzureWebJobsStorage")
 def brief_upload(myblob: func.InputStream):
-    try:
-        _handle_blob_event(
-            myblob, target_collection_name="iviva-staff-assessment-brief")
-    except BlobProcessingError as be:
-        metadata = be.metadata
-        unit_code = metadata.get("unit_code") or ""
-        assignment = metadata.get("assignment") or ""
-        session_year = metadata.get("session_year") or ""
-        
-        with _get_postgres_connection() as conn:
-            with conn.cursor() as cur:
-                question_set_id = _get_or_create_question_set(
-                    cur, unit_code, assignment, session_year
-                )
-                _append_question_set_error(
-                    cur,
-                    unit_code=unit_code,
-                    assignment=assignment,
-                    session_year=session_year,
-                    message=str(be),
-                    question_set_id=question_set_id,
-                )
-            conn.commit()
-        return
+    _handle_blob_event(
+        myblob, target_collection_name="iviva-staff-assessment-brief")
     
 # Upload assessment rubrics
 @app.function_name(name="RubricUpload")
 @app.blob_trigger(arg_name="myblob", 
                   path="iviva-staff-assessment-rubrics/{name}", 
+                  source="EventGrid",
                   connection="AzureWebJobsStorage")
 def rubric_upload(myblob: func.InputStream):
-    try:
-        _handle_blob_event(
-            myblob, target_collection_name="iviva-staff-assessment-rubrics")
-    except BlobProcessingError as be:
-        metadata = be.metadata
-        unit_code = metadata.get("unit_code") or ""
-        assignment = metadata.get("assignment") or ""
-        session_year = metadata.get("session_year") or ""
-        
-        with _get_postgres_connection() as conn:
-            with conn.cursor() as cur:
-                question_set_id = _get_or_create_question_set(
-                    cur, unit_code, assignment, session_year
-                )
-                _append_question_set_error(
-                    cur,
-                    unit_code=unit_code,
-                    assignment=assignment,
-                    session_year=session_year,
-                    message=str(be),
-                    question_set_id=question_set_id,
-                )
-            conn.commit()
-        return
+    _handle_blob_event(
+        myblob, target_collection_name="iviva-staff-assessment-rubrics")
 
 
 # ==========================================
@@ -949,7 +783,6 @@ def question_generation_queue(msg: func.ServiceBusMessage):
     session_year = payload.get("session_year")
     staff_id = payload.get("staff_id")
     alternate_questions = payload.get("alternate_questions") or []
-    question_set_id = payload.get("question_set_id")
     expected_submission_count = payload.get("expected_submission_count")
     submission_index = payload.get("submission_index")
 
@@ -994,7 +827,6 @@ def question_generation_queue(msg: func.ServiceBusMessage):
                 assignment=assignment,
                 session_year=session_year,
                 staff_id=staff_id,
-                question_set_id=question_set_id,
                 questions=questions,
                 reference=reference,
                 alternate_questions=alternate_questions,
@@ -1074,9 +906,6 @@ def generate_sas_token(req: func.HttpRequest) -> func.HttpResponse:
             "Storage account configuration error.",
             status_code=500
         )
-    
-    # Type narrowing: assert values are not None after guard
-    assert account_name is not None and account_key is not None
         
     try: 
         permissions = BlobSasPermissions(write=True, create=True)
