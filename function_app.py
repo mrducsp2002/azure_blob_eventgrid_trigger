@@ -322,6 +322,8 @@ def _handle_blob_event(myblob: func.InputStream, target_collection_name: str):
         blob_content = myblob.read()
 
         # 4. Process
+        if not myblob.name:
+            raise ValueError("Blob name is missing")
         process_blob_stream(blob_content, myblob.name, target_collection)
 
         logging.info(f"Successfully saved to {target_collection_name}")
@@ -524,9 +526,9 @@ def _store_questions_postgres(
     assignment: str,
     session_year: str,
     staff_id: str | None,
-    question_set_id: str | None = None,
     questions: list,
     reference: list,
+    question_set_id: str | None = None,
     alternate_questions: list | None = None,
     expected_submission_count: int | None = None,
 ):
@@ -812,7 +814,6 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
 @app.blob_trigger(
     arg_name="myblob", 
     path="iviva-student-assignments/{name}", 
-    source="EventGrid",
     connection="AzureWebJobsStorage")
 def student_assignments_upload(myblob: func.InputStream):
     """
@@ -827,19 +828,19 @@ def student_assignments_upload(myblob: func.InputStream):
             with conn.cursor() as cur:
                 question_set_id = _create_question_set(
                     cur,
-                    unit_code=metadata.get("unit_code"),
-                    assignment=metadata.get("assignment"),
-                    session_year=metadata.get("session_year"),
+                    unit_code=metadata.get("unit_code") or "",
+                    assignment=metadata.get("assignment") or "",
+                    session_year=metadata.get("session_year") or "",
                 )
         _append_question_set_error(
-            unit_code=metadata.get("unit_code"),
-            assignment=metadata.get("assignment"),
-            session_year=metadata.get("session_year"),
+            unit_code=metadata.get("unit_code") or "",
+            assignment=metadata.get("assignment") or "",
+            session_year=metadata.get("session_year") or "",
             message=str(be),
             question_set_id=question_set_id,
         )
         return
-    metadata = extract_batch_metadata(myblob.name)
+    metadata = extract_batch_metadata(myblob.name or "")
     _enqueue_generation_jobs(
         unit_code=metadata["unit_code"],
         assignment=metadata["assignment"],
@@ -850,7 +851,6 @@ def student_assignments_upload(myblob: func.InputStream):
 @app.function_name(name="BriefUpload")
 @app.blob_trigger(arg_name="myblob", 
                   path="iviva-staff-assessment-brief/{name}", 
-                  source="EventGrid",
                   connection="AzureWebJobsStorage")
 def brief_upload(myblob: func.InputStream):
     try:
@@ -862,14 +862,14 @@ def brief_upload(myblob: func.InputStream):
             with conn.cursor() as cur:
                 question_set_id = _create_question_set(
                     cur,
-                    unit_code=metadata.get("unit_code"),
-                    assignment=metadata.get("assignment"),
-                    session_year=metadata.get("session_year"),
+                    unit_code=metadata.get("unit_code") or "",
+                    assignment=metadata.get("assignment") or "",
+                    session_year=metadata.get("session_year") or "",
                 )
         _append_question_set_error(
-            unit_code=metadata.get("unit_code"),
-            assignment=metadata.get("assignment"),
-            session_year=metadata.get("session_year"),
+            unit_code=metadata.get("unit_code") or "",
+            assignment=metadata.get("assignment") or "",
+            session_year=metadata.get("session_year") or "",
             message=str(be),
             question_set_id=question_set_id,
         )
@@ -879,7 +879,6 @@ def brief_upload(myblob: func.InputStream):
 @app.function_name(name="RubricUpload")
 @app.blob_trigger(arg_name="myblob", 
                   path="iviva-staff-assessment-rubrics/{name}", 
-                  source="EventGrid",
                   connection="AzureWebJobsStorage")
 def rubric_upload(myblob: func.InputStream):
     try:
@@ -891,14 +890,14 @@ def rubric_upload(myblob: func.InputStream):
             with conn.cursor() as cur:
                 question_set_id = _create_question_set(
                     cur,
-                    unit_code=metadata.get("unit_code"),
-                    assignment=metadata.get("assignment"),
-                    session_year=metadata.get("session_year"),
+                    unit_code=metadata.get("unit_code") or "",
+                    assignment=metadata.get("assignment") or "",
+                    session_year=metadata.get("session_year") or "",
                 )
         _append_question_set_error(
-            unit_code=metadata.get("unit_code"),
-            assignment=metadata.get("assignment"),
-            session_year=metadata.get("session_year"),
+            unit_code=metadata.get("unit_code") or "",
+            assignment=metadata.get("assignment") or "",
+            session_year=metadata.get("session_year") or "",
             message=str(be),
             question_set_id=question_set_id,
         )
@@ -1055,6 +1054,9 @@ def generate_sas_token(req: func.HttpRequest) -> func.HttpResponse:
             "Storage account configuration error.",
             status_code=500
         )
+    
+    # Type narrowing: assert values are not None after guard
+    assert account_name is not None and account_key is not None
         
     try: 
         permissions = BlobSasPermissions(write=True, create=True)

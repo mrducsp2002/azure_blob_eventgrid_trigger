@@ -10,6 +10,10 @@ KEY = os.environ.get("DOCUMENT_INTELLIGENCE_KEY")
 
 def decode_file_content(file_name: str, content: bytes) -> str:
     """Decodes file bytes using Azure AI Document Intelligence for PDFs."""
+    if not ENDPOINT or not KEY:
+        logging.error("DOCUMENT_INTELLIGENCE_ENDPOINT or DOCUMENT_INTELLIGENCE_KEY not configured")
+        return ""
+    
     file_ext = os.path.splitext(file_name)[1].lower().strip('.')
     text_result = ""
 
