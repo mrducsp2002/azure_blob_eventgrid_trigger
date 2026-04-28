@@ -38,11 +38,12 @@ def process_blob_stream(content_bytes: bytes, blob_name: str, collection):
 # --- 3. INTERNAL HANDLERS ---
 def _process_zip_file(zip_bytes: bytes, blob_name: str, collection):
     """
-    Handle ZIP files
+    Handle ZIP files. Collects all validation errors before raising.
     """
     batch_metadata = extract_batch_metadata(blob_name)
     zip_buffer = io.BytesIO(zip_bytes)
     student_buffers = defaultdict(list)
+    errors = []
 
     with zipfile.ZipFile(zip_buffer, 'r') as zip_ref:
         file_list = zip_ref.namelist()
@@ -53,15 +54,18 @@ def _process_zip_file(zip_bytes: bytes, blob_name: str, collection):
 
             # ZIP Logic: Expects "StudentID/filename.ext"
             parts = file_path.split('/')
-            # Add guard rails for unusual file structures, failed
+            # Add guard rails for unusual file structures
             if len(parts) < 3:
-                raise ValueError(
+                errors.append(
                     f"File '{file_path}' could not be parsed. Expected comp1000... .zip / 47911100_... (file)/submission.pdf/docx (3 levels, no more no less), got {len(parts)}."
-    )
+                )
+                continue
 
             student_id = parts[1 if len(parts) >= 3 else 0].split('-')[0].strip().lower()
             if not (len(student_id) == 8 and student_id.isdigit()):
-                raise ValueError(f"Student ID '{student_id}' in file name must be exactly 8 digits. Please rename the file to include the correct student ID.")
+                errors.append(f"File '{file_path}': Invalid student ID '{student_id}' (must be exactly 8 digits).")
+                continue
+
             file_name = parts[-1]
 
             try:
@@ -72,7 +76,12 @@ def _process_zip_file(zip_bytes: bytes, blob_name: str, collection):
                         formatted_chunk = f"\n\n--- START FILE: {file_name} ---\n{text_chunk}"
                         student_buffers[student_id].append(formatted_chunk)
             except Exception as e:
-                raise ValueError(f"Error processing file '{file_path}': {e}")
+                errors.append(f"Error processing file '{file_path}': {e}")
+                continue
+
+    # If any errors were collected, raise them all together
+    if errors:
+        raise ValueError("\n".join(errors))
 
     # Save Student Data
     for student_id, text_parts in student_buffers.items():

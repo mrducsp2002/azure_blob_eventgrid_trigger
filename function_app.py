@@ -361,6 +361,33 @@ def _get_postgres_connection():
     return psycopg2.connect(database_url)
 
 
+def _create_question_set(
+    cur,
+    unit_code: str,
+    assignment: str,
+    session_year: str,
+    staff_id: str | None = None,
+) -> str:
+    name = f"{unit_code}_{assignment}_{session_year}"
+    question_set_id = str(uuid.uuid4())
+    if staff_id:
+        cur.execute(
+            'INSERT INTO "PersonalisedQuestionSets" '
+            '("questionSetId", "name", "unitCode", "assessmentName", "staffId") '
+            'VALUES (%s, %s, %s, %s, %s) RETURNING "questionSetId"',
+            (question_set_id, name, unit_code, assignment, staff_id),
+        )
+        return cur.fetchone()[0]
+
+    cur.execute(
+        'INSERT INTO "PersonalisedQuestionSets" '
+        '("questionSetId", "name", "unitCode", "assessmentName") '
+        'VALUES (%s, %s, %s, %s) RETURNING "questionSetId"',
+        (question_set_id, name, unit_code, assignment),
+    )
+    return cur.fetchone()[0]
+
+
 def _get_or_create_question_set(
     cur,
     unit_code: str,
@@ -389,23 +416,13 @@ def _get_or_create_question_set(
             )
         return question_set_id
 
-    question_set_id = str(uuid.uuid4())
-    if staff_id:
-        cur.execute(
-            'INSERT INTO "PersonalisedQuestionSets" '
-            '("questionSetId", "name", "unitCode", "assessmentName", "staffId") '
-            'VALUES (%s, %s, %s, %s, %s) RETURNING "questionSetId"',
-            (question_set_id, name, unit_code, assignment, staff_id),
-        )
-        return cur.fetchone()[0]
-    else:
-        cur.execute(
-            'INSERT INTO "PersonalisedQuestionSets" '
-            '("questionSetId", "name", "unitCode", "assessmentName") '
-            'VALUES (%s, %s, %s, %s) RETURNING "questionSetId"',
-            (question_set_id, name, unit_code, assignment),
-        )
-    return cur.fetchone()[0]
+    return _create_question_set(
+        cur,
+        unit_code=unit_code,
+        assignment=assignment,
+        session_year=session_year,
+        staff_id=staff_id,
+    )
 
 
 def _set_question_set_processing_status(
@@ -512,6 +529,7 @@ def _store_questions_postgres(
     assignment: str,
     session_year: str,
     staff_id: str | None,
+    question_set_id: str | None = None,
     questions: list,
     reference: list,
     alternate_questions: list | None = None,
@@ -536,7 +554,7 @@ def _store_questions_postgres(
     def _attempt_insert(effective_staff_id: str | None, include_student_id: bool):
         with _get_postgres_connection() as conn:
             with conn.cursor() as cur:
-                question_set_id = _get_or_create_question_set(
+                resolved_question_set_id = question_set_id or _get_or_create_question_set(
                     cur,
                     unit_code=unit_code,
                     assignment=assignment,
@@ -547,12 +565,12 @@ def _store_questions_postgres(
                 if include_student_id:
                     cur.execute(
                         'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s AND "studentId" = %s',
-                        (question_set_id, student_id),
+                        (resolved_question_set_id, student_id),
                     )
                 else:
                     cur.execute(
                         'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s AND "studentId" IS NULL',
-                        (question_set_id,),
+                        (resolved_question_set_id,),
                     )
 
                 rows_with_set = [
@@ -560,7 +578,7 @@ def _store_questions_postgres(
                         question_id,
                         question_text,
                         reference_text,
-                        question_set_id,
+                        resolved_question_set_id,
                         student_id if include_student_id else None,
                         alternate_text,
                     )
@@ -575,7 +593,7 @@ def _store_questions_postgres(
 
                 _try_mark_question_set_completed(
                     cur,
-                    question_set_id=question_set_id,
+                    question_set_id=resolved_question_set_id,
                     expected_submission_count=expected_submission_count,
                 )
 
@@ -600,10 +618,10 @@ def _store_questions_postgres(
                             student_id,
                             student_id,
                             str(uuid.uuid4()),
-                            question_set_id,
+                            resolved_question_set_id,
                             "READY_TO_START",
                             1,
-                            question_set_id,
+                            resolved_question_set_id,
                         ),
                     )
 
@@ -849,6 +867,7 @@ def question_generation_queue(msg: func.ServiceBusMessage):
     session_year = payload.get("session_year")
     staff_id = payload.get("staff_id")
     alternate_questions = payload.get("alternate_questions") or []
+    question_set_id = payload.get("question_set_id")
     expected_submission_count = payload.get("expected_submission_count")
     submission_index = payload.get("submission_index")
 
@@ -893,6 +912,7 @@ def question_generation_queue(msg: func.ServiceBusMessage):
                 assignment=assignment,
                 session_year=session_year,
                 staff_id=staff_id,
+                question_set_id=question_set_id,
                 questions=questions,
                 reference=reference,
                 alternate_questions=alternate_questions,
