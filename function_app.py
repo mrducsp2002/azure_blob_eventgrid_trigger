@@ -454,6 +454,7 @@ def _set_question_set_processing_status(
 
 
 def _append_question_set_error(
+    cur,
     unit_code: str | None,
     assignment: str | None,
     session_year: str | None,
@@ -475,18 +476,15 @@ def _append_question_set_error(
     timestamp = datetime.now(timezone.utc).isoformat()
     formatted = f"[{timestamp}] {message}"
 
-    with _get_postgres_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                'UPDATE "PersonalisedQuestionSets" '
-                'SET "errorMessage" = CASE '
-                'WHEN "errorMessage" IS NULL OR "errorMessage" = %s THEN %s '
-                'ELSE "errorMessage" || E\'\\n\' || %s END, '
-                '"status" = %s '
-                'WHERE "questionSetId" = %s',
-                ("", formatted, formatted, "UNSUCCESSFUL", question_set_id),
-            )
-        conn.commit()
+    cur.execute(
+        'UPDATE "PersonalisedQuestionSets" '
+        'SET "errorMessage" = CASE '
+        'WHEN "errorMessage" IS NULL OR "errorMessage" = %s THEN %s '
+        'ELSE "errorMessage" || E\'\\n\' || %s END, '
+        '"status" = %s '
+        'WHERE "questionSetId" = %s',
+        ("", formatted, formatted, "UNSUCCESSFUL", question_set_id),
+    )
 
 
 def _try_mark_question_set_completed(
@@ -582,6 +580,7 @@ def _store_questions_postgres(
                         )
                 if violations:
                     _append_question_set_error(
+                        cur,
                         unit_code=unit_code,
                         assignment=assignment,
                         session_year=session_year,
@@ -671,32 +670,40 @@ def _store_questions_postgres(
                 and "PersonalisedQuestionSets_staffId_fkey" in (constraint_name or "")
                 and effective_staff_id
             ):
-                _append_question_set_error(
-                    unit_code=unit_code,
-                    assignment=assignment,
-                    session_year=session_year,
-                    message=(
-                        "Postgres FK violation on staffId (%s). Aborting insert."
-                        % effective_staff_id
-                    ),
-                    question_set_id=question_set_id,
-                )
+                with _get_postgres_connection() as conn:
+                    with conn.cursor() as cur:
+                        _append_question_set_error(
+                            cur,
+                            unit_code=unit_code,
+                            assignment=assignment,
+                            session_year=session_year,
+                            message=(
+                                "Postgres FK violation on staffId (%s). Aborting insert."
+                                % effective_staff_id
+                            ),
+                            question_set_id=question_set_id,
+                        )
+                    conn.commit()
                 raise
             if (
                 is_fk_violation
                 and "PersonalisedQuestions_studentId_fkey" in (constraint_name or "")
                 and include_student_id
             ):
-                _append_question_set_error(
-                    unit_code=unit_code,
-                    assignment=assignment,
-                    session_year=session_year,
-                    message=(
-                        "Postgres FK violation on studentId (%s). Aborting insert."
-                        % student_id
-                    ),
-                    question_set_id=question_set_id,
-                )
+                with _get_postgres_connection() as conn:
+                    with conn.cursor() as cur:
+                        _append_question_set_error(
+                            cur,
+                            unit_code=unit_code,
+                            assignment=assignment,
+                            session_year=session_year,
+                            message=(
+                                "Postgres FK violation on studentId (%s). Aborting insert."
+                                % student_id
+                            ),
+                            question_set_id=question_set_id,
+                        )
+                    conn.commit()
                 raise
             raise
 
@@ -837,14 +844,15 @@ def student_assignments_upload(myblob: func.InputStream):
                 question_set_id = _get_or_create_question_set(
                     cur, unit_code, assignment, session_year
                 )
-        
-        _append_question_set_error(
-            unit_code=unit_code,
-            assignment=assignment,
-            session_year=session_year,
-            message=str(be),
-            question_set_id=question_set_id,
-        )
+                _append_question_set_error(
+                    cur,
+                    unit_code=unit_code,
+                    assignment=assignment,
+                    session_year=session_year,
+                    message=str(be),
+                    question_set_id=question_set_id,
+                )
+            conn.commit()
         return
     metadata = extract_batch_metadata(myblob.name or "")
     _enqueue_generation_jobs(
@@ -873,14 +881,15 @@ def brief_upload(myblob: func.InputStream):
                 question_set_id = _get_or_create_question_set(
                     cur, unit_code, assignment, session_year
                 )
-        
-        _append_question_set_error(
-            unit_code=unit_code,
-            assignment=assignment,
-            session_year=session_year,
-            message=str(be),
-            question_set_id=question_set_id,
-        )
+                _append_question_set_error(
+                    cur,
+                    unit_code=unit_code,
+                    assignment=assignment,
+                    session_year=session_year,
+                    message=str(be),
+                    question_set_id=question_set_id,
+                )
+            conn.commit()
         return
     
 # Upload assessment rubrics
@@ -903,14 +912,15 @@ def rubric_upload(myblob: func.InputStream):
                 question_set_id = _get_or_create_question_set(
                     cur, unit_code, assignment, session_year
                 )
-        
-        _append_question_set_error(
-            unit_code=unit_code,
-            assignment=assignment,
-            session_year=session_year,
-            message=str(be),
-            question_set_id=question_set_id,
-        )
+                _append_question_set_error(
+                    cur,
+                    unit_code=unit_code,
+                    assignment=assignment,
+                    session_year=session_year,
+                    message=str(be),
+                    question_set_id=question_set_id,
+                )
+            conn.commit()
         return
 
 
