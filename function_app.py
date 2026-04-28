@@ -778,7 +778,6 @@ def student_assignments_upload(myblob: func.InputStream):
             session_year=metadata.get("session_year"),
             message=str(ve),
         )
-        raise
     metadata = extract_batch_metadata(myblob.name)
     _enqueue_generation_jobs(
         unit_code=metadata["unit_code"],
@@ -804,7 +803,6 @@ def brief_upload(myblob: func.InputStream):
             session_year=metadata.get("session_year"),
             message=str(ve),
         )
-        raise
     
 # Upload assessment rubrics
 @app.function_name(name="RubricUpload")
@@ -824,7 +822,6 @@ def rubric_upload(myblob: func.InputStream):
             session_year=metadata.get("session_year"),
             message=str(ve),
         )
-        raise
 
 
 # ==========================================
