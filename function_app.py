@@ -480,9 +480,10 @@ def _append_question_set_error(
                 'UPDATE "PersonalisedQuestionSets" '
                 'SET "errorMessage" = CASE '
                 'WHEN "errorMessage" IS NULL OR "errorMessage" = %s THEN %s '
-                'ELSE "errorMessage" || E\'\\n\' || %s END '
+                'ELSE "errorMessage" || E\'\\n\' || %s END, '
+                '"status" = %s '
                 'WHERE "questionSetId" = %s',
-                ("", formatted, formatted, question_set_id),
+                ("", formatted, formatted, "UNSUCCESSFUL", question_set_id),
             )
 
 
