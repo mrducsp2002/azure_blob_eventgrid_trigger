@@ -476,9 +476,10 @@ def _append_question_set_error(
                 'UPDATE "PersonalisedQuestionSets" '
                 'SET "errorMessage" = CASE '
                 'WHEN "errorMessage" IS NULL OR "errorMessage" = %s THEN %s '
-                'ELSE "errorMessage" || E\'\\n\' || %s END '
+                'ELSE "errorMessage" || E\'\\n\' || %s END, '
+                '"status" = %s '
                 'WHERE "questionSetId" = %s',
-                ("", formatted, formatted, question_set_id),
+                ("", formatted, formatted, "UNSUCCESSFUL", question_set_id),
             )
 
 
@@ -778,23 +779,43 @@ def student_assignments_upload(myblob: func.InputStream):
     
 # Upload assessment brief
 @app.function_name(name="BriefUpload")
-@app.blob_trigger(arg_name="myblob", 
-                  path="iviva-staff-assessment-brief/{name}", 
+@app.blob_trigger(arg_name="myblob",
+                  path="iviva-staff-assessment-brief/{name}",
                   source="EventGrid",
                   connection="AzureWebJobsStorage")
 def brief_upload(myblob: func.InputStream):
-    _handle_blob_event(
-        myblob, target_collection_name="iviva-staff-assessment-brief")
-    
+    metadata = extract_batch_metadata(myblob.name)
+    try:
+        _handle_blob_event(
+            myblob, target_collection_name="iviva-staff-assessment-brief")
+    except ValueError as ve:
+        _append_question_set_error(
+            unit_code=metadata.get("unit_code"),
+            assignment=metadata.get("assignment"),
+            session_year=metadata.get("session_year"),
+            batch_id=_make_batch_id(),
+            message=f"Brief upload failed for {myblob.name}: {ve}",
+        )
+
 # Upload assessment rubrics
 @app.function_name(name="RubricUpload")
-@app.blob_trigger(arg_name="myblob", 
-                  path="iviva-staff-assessment-rubrics/{name}", 
+@app.blob_trigger(arg_name="myblob",
+                  path="iviva-staff-assessment-rubrics/{name}",
                   source="EventGrid",
                   connection="AzureWebJobsStorage")
 def rubric_upload(myblob: func.InputStream):
-    _handle_blob_event(
-        myblob, target_collection_name="iviva-staff-assessment-rubrics")
+    metadata = extract_batch_metadata(myblob.name)
+    try:
+        _handle_blob_event(
+            myblob, target_collection_name="iviva-staff-assessment-rubrics")
+    except ValueError as ve:
+        _append_question_set_error(
+            unit_code=metadata.get("unit_code"),
+            assignment=metadata.get("assignment"),
+            session_year=metadata.get("session_year"),
+            batch_id=_make_batch_id(),
+            message=f"Rubric upload failed for {myblob.name}: {ve}",
+        )
 
 
 # ==========================================
