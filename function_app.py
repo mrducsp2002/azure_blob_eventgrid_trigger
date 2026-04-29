@@ -18,7 +18,7 @@ from src.database import (
 from src.processor import process_blob_stream, extract_batch_metadata
 from src.generator import generate_questions_logic, regenerate_questions_logic, generate_feedback
 from src.practice import handle_viva_message, start_viva_session
-from azure.storage.blob import generate_blob_sas, BlobSasPermissions
+from azure.storage.blob import generate_blob_sas, BlobSasPermissions, BlobServiceClient
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
 from datetime import datetime, timedelta, timezone
 
@@ -361,9 +361,20 @@ def _get_postgres_connection():
     return psycopg2.connect(database_url)
 
 
-def _make_batch_id() -> str:
-    # Timestamp + short uuid suffix to avoid collisions when two batches arrive in the same second.
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:4]
+def _blob_batch_id(container_name: str, blob_name: str | None) -> str:
+    # Stable batch_id from blob ETag so Event Grid redeliveries map to the same question set.
+    if not blob_name:
+        raise ValueError("blob_name required to derive batch_id.")
+    relative = blob_name.split("/", 1)[1] if blob_name.startswith(container_name + "/") else blob_name
+    conn = os.environ.get("AzureWebJobsStorage")
+    if not conn:
+        raise ValueError("AzureWebJobsStorage is not configured.")
+    svc = BlobServiceClient.from_connection_string(conn)
+    props = svc.get_blob_client(container=container_name, blob=relative).get_blob_properties()
+    etag = (props.etag or "").strip('"').replace(":", "")
+    if not etag:
+        raise ValueError(f"Blob {container_name}/{relative} has no ETag.")
+    return etag
 
 
 def _get_or_create_question_set(
@@ -759,7 +770,7 @@ def student_assignments_upload(myblob: func.InputStream):
     Azure Function triggered by Blob storage events via Event Grid.
     Processes the blob and saves to 'assignments' collection.
     """
-    batch_id = _make_batch_id()
+    batch_id = _blob_batch_id("iviva-student-assignments", myblob.name)
     metadata = extract_batch_metadata(myblob.name)
     try:
         _handle_blob_event(myblob, target_collection_name="iviva-student-assignments")
@@ -788,6 +799,7 @@ def student_assignments_upload(myblob: func.InputStream):
                   connection="AzureWebJobsStorage")
 def brief_upload(myblob: func.InputStream):
     metadata = extract_batch_metadata(myblob.name)
+    batch_id = _blob_batch_id("iviva-staff-assessment-brief", myblob.name)
     try:
         _handle_blob_event(
             myblob, target_collection_name="iviva-staff-assessment-brief")
@@ -796,7 +808,7 @@ def brief_upload(myblob: func.InputStream):
             unit_code=metadata.get("unit_code"),
             assignment=metadata.get("assignment"),
             session_year=metadata.get("session_year"),
-            batch_id=_make_batch_id(),
+            batch_id=batch_id,
             message=f"Brief upload failed for {myblob.name}: {ve}",
         )
 
@@ -808,6 +820,7 @@ def brief_upload(myblob: func.InputStream):
                   connection="AzureWebJobsStorage")
 def rubric_upload(myblob: func.InputStream):
     metadata = extract_batch_metadata(myblob.name)
+    batch_id = _blob_batch_id("iviva-staff-assessment-rubrics", myblob.name)
     try:
         _handle_blob_event(
             myblob, target_collection_name="iviva-staff-assessment-rubrics")
@@ -816,7 +829,7 @@ def rubric_upload(myblob: func.InputStream):
             unit_code=metadata.get("unit_code"),
             assignment=metadata.get("assignment"),
             session_year=metadata.get("session_year"),
-            batch_id=_make_batch_id(),
+            batch_id=batch_id,
             message=f"Rubric upload failed for {myblob.name}: {ve}",
         )
 
@@ -936,7 +949,7 @@ def generate_sas_token(req: func.HttpRequest) -> func.HttpResponse:
         
     container_name = req_body.get('containerName')
     blob_name = req_body.get('blobName')
-    
+
     if not container_name or not blob_name:
         return func.HttpResponse(
             "Missing required parameters. Please provide containerName and blobName.",
@@ -981,7 +994,7 @@ def generate_sas_token(req: func.HttpRequest) -> func.HttpResponse:
         )
         
         sas_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}?{sas_token}"
-        
+
         return func.HttpResponse(
             json.dumps({"uploadUrl": sas_url}),
             mimetype="application/json",
