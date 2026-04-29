@@ -361,16 +361,22 @@ def _get_postgres_connection():
     return psycopg2.connect(database_url)
 
 
+def _make_batch_id() -> str:
+    # Timestamp + short uuid suffix to avoid collisions when two batches arrive in the same second.
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:4]
+
+
 def _get_or_create_question_set(
     cur,
     unit_code: str,
     assignment: str,
     session_year: str,
+    batch_id: str,
     staff_id: str | None = None,
 ) -> str:
-    name = f"{unit_code}_{assignment}_{session_year}"
+    name = f"{unit_code}_{assignment}_{session_year}_{batch_id}"
     # Serialize get/create per logical set key to prevent duplicate rows under concurrent queue workers.
-    lock_key = f"{unit_code}|{assignment}|{session_year}"
+    lock_key = f"{unit_code}|{assignment}|{session_year}|{batch_id}"
     cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (lock_key,))
 
     cur.execute(
@@ -412,6 +418,7 @@ def _set_question_set_processing_status(
     unit_code: str,
     assignment: str,
     session_year: str,
+    batch_id: str,
     staff_id: str | None,
     expected_submission_count: int,
 ) -> str:
@@ -422,6 +429,7 @@ def _set_question_set_processing_status(
                 unit_code=unit_code,
                 assignment=assignment,
                 session_year=session_year,
+                batch_id=batch_id,
                 staff_id=staff_id,
             )
             cur.execute(
@@ -437,6 +445,7 @@ def _append_question_set_error(
     unit_code: str | None,
     assignment: str | None,
     session_year: str | None,
+    batch_id: str,
     message: str,
 ):
     unit_code = _normalize_meta(unit_code or "")
@@ -461,6 +470,7 @@ def _append_question_set_error(
                 unit_code=unit_code,
                 assignment=assignment,
                 session_year=session_year,
+                batch_id=batch_id,
             )
             cur.execute(
                 'UPDATE "PersonalisedQuestionSets" '
@@ -508,10 +518,7 @@ def _try_mark_question_set_completed(
 
 def _store_questions_postgres(
     student_id: str,
-    unit_code: str,
-    assignment: str,
-    session_year: str,
-    staff_id: str | None,
+    question_set_id: str,
     questions: list,
     reference: list,
     alternate_questions: list | None = None,
@@ -533,16 +540,9 @@ def _store_questions_postgres(
     if not rows:
         return
 
-    def _attempt_insert(effective_staff_id: str | None, include_student_id: bool):
+    def _attempt_insert(include_student_id: bool):
         with _get_postgres_connection() as conn:
             with conn.cursor() as cur:
-                question_set_id = _get_or_create_question_set(
-                    cur,
-                    unit_code=unit_code,
-                    assignment=assignment,
-                    session_year=session_year,
-                    staff_id=effective_staff_id,
-                )
                 # Idempotent behavior: replace existing generated rows for this student/set.
                 if include_student_id:
                     cur.execute(
@@ -607,29 +607,14 @@ def _store_questions_postgres(
                         ),
                     )
 
-    effective_staff_id = staff_id
     include_student_id = True
     for _ in range(3):
         try:
-            _attempt_insert(
-                effective_staff_id=effective_staff_id,
-                include_student_id=include_student_id,
-            )
+            _attempt_insert(include_student_id=include_student_id)
             return
         except psycopg2.Error as e:
             constraint_name = getattr(getattr(e, "diag", None), "constraint_name", "")
             is_fk_violation = e.pgcode == "23503"
-            if (
-                is_fk_violation
-                and "PersonalisedQuestionSets_staffId_fkey" in (constraint_name or "")
-                and effective_staff_id
-            ):
-                logging.warning(
-                    "Postgres FK violation on staffId (%s). Retrying without staffId.",
-                    effective_staff_id,
-                )
-                effective_staff_id = None
-                continue
             if (
                 is_fk_violation
                 and "PersonalisedQuestions_studentId_fkey" in (constraint_name or "")
@@ -667,7 +652,7 @@ def _has_postgres_questions(
             return cur.fetchone() is not None
 
 
-def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str):
+def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str, batch_id: str):
     unit_code = _normalize_meta(unit_code)
     assignment = _normalize_assignment(assignment)
     session_year = _normalize_session(session_year)
@@ -724,6 +709,7 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
             unit_code=unit_code,
             assignment=assignment,
             session_year=session_year,
+            batch_id=batch_id,
             staff_id=staff_id,
             expected_submission_count=expected_submission_count,
         )
@@ -743,6 +729,7 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
                     "unit_code": unit_code,
                     "assignment": assignment,
                     "session_year": session_year,
+                    "batch_id": batch_id,
                     "staff_id": staff_id,
                     "alternate_questions": alternate_questions,
                     "question_set_id": question_set_id,
@@ -768,22 +755,25 @@ def student_assignments_upload(myblob: func.InputStream):
     Azure Function triggered by Blob storage events via Event Grid.
     Processes the blob and saves to 'assignments' collection.
     """
+    batch_id = _make_batch_id()
+    metadata = extract_batch_metadata(myblob.name)
     try:
         _handle_blob_event(myblob, target_collection_name="iviva-student-assignments")
     except ValueError as ve:
-        metadata = extract_batch_metadata(myblob.name)
         _append_question_set_error(
             unit_code=metadata.get("unit_code"),
             assignment=metadata.get("assignment"),
             session_year=metadata.get("session_year"),
+            batch_id=batch_id,
             message=str(ve),
         )
-        raise
-    metadata = extract_batch_metadata(myblob.name)
+        return
+
     _enqueue_generation_jobs(
         unit_code=metadata["unit_code"],
         assignment=metadata["assignment"],
         session_year=metadata["session_year"],
+        batch_id=batch_id,
     )
     
 # Upload assessment brief
@@ -830,10 +820,10 @@ def question_generation_queue(msg: func.ServiceBusMessage):
     unit_code = payload.get("unit_code")
     assignment = payload.get("assignment")
     session_year = payload.get("session_year")
-    staff_id = payload.get("staff_id")
     alternate_questions = payload.get("alternate_questions") or []
     expected_submission_count = payload.get("expected_submission_count")
     submission_index = payload.get("submission_index")
+    question_set_id = payload.get("question_set_id")
 
     try:
         expected_submission_count = int(expected_submission_count) if expected_submission_count is not None else None
@@ -845,7 +835,7 @@ def question_generation_queue(msg: func.ServiceBusMessage):
     except (TypeError, ValueError):
         submission_index = None
 
-    if not all([student_id, unit_code, assignment, session_year]):
+    if not all([student_id, unit_code, assignment, session_year, question_set_id]):
         logging.error("Queue payload missing required fields.")
         return
 
@@ -872,10 +862,7 @@ def question_generation_queue(msg: func.ServiceBusMessage):
         try:
             _store_questions_postgres(
                 student_id=student_id,
-                unit_code=unit_code,
-                assignment=assignment,
-                session_year=session_year,
-                staff_id=staff_id,
+                question_set_id=question_set_id,
                 questions=questions,
                 reference=reference,
                 alternate_questions=alternate_questions,
