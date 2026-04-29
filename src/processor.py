@@ -44,6 +44,8 @@ def _process_zip_file(zip_bytes: bytes, blob_name: str, collection):
     zip_buffer = io.BytesIO(zip_bytes)
     student_buffers = defaultdict(list)
     errors = []
+    bad_structure_count = 0
+    BAD_STRUCTURE_LIMIT = 3
 
     with zipfile.ZipFile(zip_buffer, 'r') as zip_ref:
         file_list = zip_ref.namelist()
@@ -56,9 +58,11 @@ def _process_zip_file(zip_bytes: bytes, blob_name: str, collection):
             parts = file_path.split('/')
             # Add guard rails for unusual file structures
             if len(parts) < 3:
-                errors.append(
-                    f"File '{file_path}' could not be parsed. Expected comp1000... .zip / 47911100_... (file)/submission.pdf/docx (3 levels, no more no less), got {len(parts)}."
-                )
+                bad_structure_count += 1
+                if bad_structure_count <= BAD_STRUCTURE_LIMIT:
+                    errors.append(
+                        f"File '{file_path}' could not be parsed. Expected comp1000... .zip / 47911100_... (file)/submission.pdf/docx (3 levels, no more no less), got {len(parts)}."
+                    )
                 continue
 
             student_id = parts[1 if len(parts) >= 3 else 0].split('-')[0].strip().lower()
@@ -78,6 +82,11 @@ def _process_zip_file(zip_bytes: bytes, blob_name: str, collection):
             except Exception as e:
                 errors.append(f"Error processing file '{file_path}': {e}")
                 continue
+
+    if bad_structure_count > BAD_STRUCTURE_LIMIT:
+        errors.append(
+            f"... and {bad_structure_count - BAD_STRUCTURE_LIMIT} more files with invalid structure (suppressed)."
+        )
 
     # If any errors were collected, raise them all together
     if errors:

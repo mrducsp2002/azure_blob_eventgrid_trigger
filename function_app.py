@@ -490,7 +490,7 @@ def _append_question_set_error(
         )
         return
 
-    timestamp = datetime.now(timezone.utc).isoformat()
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     formatted = f"[{timestamp}] {message}"
 
     seed_doc = get_staff_document(
@@ -833,7 +833,7 @@ def brief_upload(myblob: func.InputStream):
             unit_code=metadata.get("unit_code"),
             assignment=metadata.get("assignment"),
             session_year=metadata.get("session_year"),
-            message=f"Brief upload failed for {myblob.name}: {ve}",
+            message=f"Brief upload failed: {ve}",
         )
 
 # Upload assessment rubrics
@@ -852,7 +852,7 @@ def rubric_upload(myblob: func.InputStream):
             unit_code=metadata.get("unit_code"),
             assignment=metadata.get("assignment"),
             session_year=metadata.get("session_year"),
-            message=f"Rubric upload failed for {myblob.name}: {ve}",
+            message=f"Rubric upload failed: {ve}",
         )
 
 
