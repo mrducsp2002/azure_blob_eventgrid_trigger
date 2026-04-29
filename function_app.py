@@ -465,7 +465,7 @@ def _reset_question_set_for_submission(
             )
             cur.execute(
                 'UPDATE "PersonalisedQuestionSets" '
-                'SET "status" = %s '
+                'SET "status" = %s, "expectedStudentCount" = NULL '
                 'WHERE "questionSetId" = %s',
                 ("PROCESSING", question_set_id),
             )
