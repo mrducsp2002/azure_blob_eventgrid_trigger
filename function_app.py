@@ -425,8 +425,12 @@ def _set_question_set_processing_status(
                 staff_id=staff_id,
             )
             cur.execute(
+                'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s',
+                (question_set_id,),
+            )
+            cur.execute(
                 'UPDATE "PersonalisedQuestionSets" '
-                'SET "status" = %s, "expectedStudentCount" = %s '
+                'SET "status" = %s, "expectedStudentCount" = %s, "errorMessage" = NULL '
                 'WHERE "questionSetId" = %s',
                 ("PROCESSING", expected_submission_count, question_set_id),
             )
