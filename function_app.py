@@ -480,7 +480,7 @@ def _append_question_set_error(
                 'ELSE "errorMessage" || E\'\\n\' || %s END, '
                 '"status" = %s '
                 'WHERE "questionSetId" = %s',
-                ("", formatted, formatted, "UNSUCCESSFUL", question_set_id),
+                ("", formatted, formatted, "FAILED", question_set_id),
             )
         conn.commit()
 
