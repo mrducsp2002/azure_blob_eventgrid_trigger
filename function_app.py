@@ -425,17 +425,51 @@ def _set_question_set_processing_status(
                 staff_id=staff_id,
             )
             cur.execute(
+                'UPDATE "PersonalisedQuestionSets" '
+                'SET "expectedStudentCount" = %s '
+                'WHERE "questionSetId" = %s',
+                (expected_submission_count, question_set_id),
+            )
+            conn.commit()
+            return question_set_id
+
+
+def _reset_question_set_for_submission(
+    unit_code: str | None,
+    assignment: str | None,
+    session_year: str | None,
+):
+    unit_code = _normalize_meta(unit_code or "")
+    assignment = _normalize_assignment(assignment or "")
+    session_year = _normalize_session(session_year or "")
+    if not all([unit_code, assignment, session_year]):
+        logging.warning(
+            "Skipping question set reset due to missing metadata: %s/%s/%s",
+            unit_code,
+            assignment,
+            session_year,
+        )
+        return
+
+    with _get_postgres_connection() as conn:
+        with conn.cursor() as cur:
+            question_set_id = _get_or_create_question_set(
+                cur,
+                unit_code=unit_code,
+                assignment=assignment,
+                session_year=session_year,
+            )
+            cur.execute(
                 'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s',
                 (question_set_id,),
             )
             cur.execute(
                 'UPDATE "PersonalisedQuestionSets" '
-                'SET "status" = %s, "expectedStudentCount" = %s, "errorMessage" = NULL '
+                'SET "status" = %s '
                 'WHERE "questionSetId" = %s',
-                ("PROCESSING", expected_submission_count, question_set_id),
+                ("PROCESSING", question_set_id),
             )
-            conn.commit()
-            return question_set_id
+        conn.commit()
 
 
 def _append_question_set_error(
@@ -509,7 +543,7 @@ def _try_mark_question_set_completed(
 
     cur.execute(
         'UPDATE "PersonalisedQuestionSets" '
-        'SET "status" = %s '
+        'SET "status" = %s, "errorMessage" = NULL '
         'WHERE "questionSetId" = %s AND "status" <> %s',
         ("COMPLETED", question_set_id, "COMPLETED"),
     )
@@ -761,6 +795,11 @@ def student_assignments_upload(myblob: func.InputStream):
     Processes the blob and saves to 'assignments' collection.
     """
     metadata = extract_batch_metadata(myblob.name)
+    _reset_question_set_for_submission(
+        unit_code=metadata.get("unit_code"),
+        assignment=metadata.get("assignment"),
+        session_year=metadata.get("session_year"),
+    )
     try:
         _handle_blob_event(myblob, target_collection_name="iviva-student-assignments")
     except ValueError as ve:
