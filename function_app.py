@@ -463,11 +463,16 @@ def _reset_question_set_for_submission(
                 'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s',
                 (question_set_id,),
             )
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+            divider = f"------- New batch [{timestamp}] -------"
             cur.execute(
                 'UPDATE "PersonalisedQuestionSets" '
-                'SET "status" = %s, "expectedStudentCount" = NULL '
+                'SET "status" = %s, "expectedStudentCount" = NULL, '
+                '"errorMessage" = CASE '
+                'WHEN "errorMessage" IS NULL OR "errorMessage" = %s THEN "errorMessage" '
+                'ELSE %s || E\'\\n\' || "errorMessage" END '
                 'WHERE "questionSetId" = %s',
-                ("PROCESSING", question_set_id),
+                ("PROCESSING", "", divider, question_set_id),
             )
         conn.commit()
 
