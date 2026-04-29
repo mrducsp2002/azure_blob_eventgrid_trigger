@@ -459,6 +459,14 @@ def _append_question_set_error(
     timestamp = datetime.now(timezone.utc).isoformat()
     formatted = f"[{timestamp}] {message}"
 
+    seed_doc = get_staff_document(
+        collection_name="iviva-staff-seed-questions",
+        unit_code=unit_code,
+        session_year=session_year,
+        assignment=assignment,
+    )
+    staff_id = _normalize_meta((seed_doc or {}).get("staff_id") or "") if seed_doc else None
+
     with _get_postgres_connection() as conn:
         with conn.cursor() as cur:
             question_set_id = _get_or_create_question_set(
@@ -466,6 +474,7 @@ def _append_question_set_error(
                 unit_code=unit_code,
                 assignment=assignment,
                 session_year=session_year,
+                staff_id=staff_id or None,
             )
             cur.execute(
                 'UPDATE "PersonalisedQuestionSets" '
