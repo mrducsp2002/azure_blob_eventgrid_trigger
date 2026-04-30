@@ -21,6 +21,7 @@ from src.practice import handle_viva_message, start_viva_session
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 app = func.FunctionApp()
 _QUESTION_QUEUE_NAME = "iviva-question-generation"
@@ -426,7 +427,8 @@ def _set_question_set_processing_status(
             )
             cur.execute(
                 'UPDATE "PersonalisedQuestionSets" '
-                'SET "expectedStudentCount" = %s '
+                'SET "expectedStudentCount" = %s, '
+                '"processedStudentCount" = 0 '
                 'WHERE "questionSetId" = %s',
                 (expected_submission_count, question_set_id),
             )
@@ -465,11 +467,12 @@ def _reset_question_set_for_submission(
                 'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s',
                 (question_set_id,),
             )
-            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+            timestamp = datetime.now(ZoneInfo("Australia/Sydney")).strftime("%Y-%m-%dT%H:%M:%S")
             divider = f"------- New batch [{timestamp}] -------"
             cur.execute(
                 'UPDATE "PersonalisedQuestionSets" '
                 'SET "status" = %s, "expectedStudentCount" = NULL, '
+                '"processedStudentCount" = 0, '
                 '"errorMessage" = CASE '
                 'WHEN "errorMessage" IS NULL OR "errorMessage" = %s THEN "errorMessage" '
                 'ELSE %s || E\'\\n\' || "errorMessage" END '
@@ -538,14 +541,14 @@ def _try_mark_question_set_completed(
         return
 
     cur.execute(
-        'SELECT COUNT(DISTINCT "studentId") '
-        'FROM "PersonalisedQuestions" '
-        'WHERE "questionSetId" = %s AND "studentId" IS NOT NULL',
+        'SELECT COALESCE("processedStudentCount", 0) '
+        'FROM "PersonalisedQuestionSets" '
+        'WHERE "questionSetId" = %s',
         (question_set_id,),
     )
     row = cur.fetchone()
-    completed_count = int(row[0] or 0) if row else 0
-    if completed_count < expected_submission_count:
+    processed_count = int(row[0] or 0) if row else 0
+    if processed_count < expected_submission_count:
         return
 
     cur.execute(
@@ -558,9 +561,18 @@ def _try_mark_question_set_completed(
         logging.info(
             "Question set %s marked COMPLETED (%s/%s students).",
             question_set_id,
-            completed_count,
+            processed_count,
             expected_submission_count,
         )
+
+
+def _increment_processed_student_count(cur, question_set_id: str):
+    cur.execute(
+        'UPDATE "PersonalisedQuestionSets" '
+        'SET "processedStudentCount" = COALESCE("processedStudentCount", 0) + 1 '
+        'WHERE "questionSetId" = %s',
+        (question_set_id,),
+    )
 
 
 def _find_missing_student_ids(student_ids: list[str]) -> list[str]:
@@ -641,6 +653,7 @@ def _store_questions_postgres(
                     rows_with_set,
                 )
 
+                _increment_processed_student_count(cur, question_set_id)
                 _try_mark_question_set_completed(
                     cur,
                     question_set_id=question_set_id,
