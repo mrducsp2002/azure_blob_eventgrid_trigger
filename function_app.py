@@ -376,10 +376,10 @@ def _get_or_create_question_set(
     cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (lock_key,))
 
     cur.execute(
-        'SELECT "questionSetId", "staffId" FROM "PersonalisedQuestionSets" '
-        'WHERE "name" = %s'
-        'ORDER BY "createdAt" DESC LIMIT 1',
-        (db_name),
+        'SELECT "questionSetId", "staffId" FROM "PersonalisedQuestionSets" ' 
+        'WHERE "name" = %s ' 
+        'ORDER BY "createdAt" DESC LIMIT 1', 
+        (db_name,),
     )
     row = cur.fetchone()
     if row:
