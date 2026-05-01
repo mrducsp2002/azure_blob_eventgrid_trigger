@@ -232,51 +232,57 @@ def regenerate_questions_logic(current_question, user_comment):
     # Return the parsed JSON object directly
     return _parse_json_response(response.content[0].text, ["regenerated_question", "explanation"])
 
-def generate_feedback(unit_code: str, session: str, assignment:str, questions: List[str], answers: List[str]) -> str:
+def generate_feedback(questions: List[str], answers: List[str], expected_answers: List[str]) -> str:
     """
     Generates feedback based on the student's answers to the questions.
     Returns: Feedback as string 
     """
     
-    # 1. Fetch Document
-    docs = {
-        "Assessment Brief": get_staff_document(
-            collection_name="iviva-staff-assessment-brief",
-            unit_code=unit_code,
-            session_year=session,
-            assignment=assignment,
-        ),
-        "Assessment Rubric": get_staff_document(
-            collection_name="iviva-staff-assessment-rubrics",
-            unit_code=unit_code,
-            session_year=session,
-            assignment=assignment,
-        )}
+    # # 1. Fetch Document
+    # docs = {
+    #     "Assessment Brief": get_staff_document(
+    #         collection_name="iviva-staff-assessment-brief",
+    #         unit_code=unit_code,
+    #         session_year=session,
+    #         assignment=assignment,
+    #     ),
+    #     "Assessment Rubric": get_staff_document(
+    #         collection_name="iviva-staff-assessment-rubrics",
+    #         unit_code=unit_code,
+    #         session_year=session,
+    #         assignment=assignment,
+    #     )}
     
-    missing = [name for name, docs in docs.items() if not docs]
+    # missing = [name for name, docs in docs.items() if not docs]
     
-    if missing: 
-        raise ValueError(f"Missing required documents for feedback generation: {', '.join(missing)}")
+    # if missing: 
+    #     raise ValueError(f"Missing required documents for feedback generation: {', '.join(missing)}")
     
-    # 2. Extract Content
-    brief_text = docs["Assessment Brief"].get("content", "")
-    rubric_text = docs["Assessment Rubric"].get("content", "")
+    # # 2. Extract Content
+    # brief_text = docs["Assessment Brief"].get("content", "")
+    # rubric_text = docs["Assessment Rubric"].get("content", "")
     
     # 3. Call AI
     feedback_prompt = """
-        "You are an examiner grading viva answers using only the provided context from the assessment brief and rubric."
-        "Given the viva questions and the student's answers, provide concise feedback grounded in the text. "
-        "If the text does not support an answer, call that out. "
-        "Output:\n\n"
-        "### FEEDBACK\n"
-        "- Summary: <one short sentence>\n"
-        "- Per question: Q1 <feedback>; Q2 <feedback>; Q3 <feedback>\n\n"
-        "### SOURCES\n"
-        "<one source per line, with text from the retrieved chunk sources and the specific line they come from>\n"
+        This is a knowledge-based test. You are an examiner checking students 'oral' answers against the expected answers provided by the teacher for a viva voce.
+        
+        GUIDELINES:
+        You are given the conversation. 
+        Read the questions and compare teacher's expected answers with the student's answers and provide concise feedback grounded in the text. 
+        If the student answer is not relevant to the teacher's expected answer, call that out. 
+        Use the teacher's expected answer as the benchmark for correctness, but also consider partial understanding and provide constructive feedback on how to improve.
+        Use simple and clear language, as this feedback will be given to students to help them understand their performance and how to improve for future assessments.
+        
+        Output:\n\n
+        ### FEEDBACK\n
+        - Q1: Feedback for question 1
+        - Q2: Feedback for question 2
+        and so on...
+
     """
     
     qa_text = "\n".join(
-        [f"Q{i + 1}: {questions[i]}\nA{i + 1}: {answers[i]}" for i in range(
+        [f"Question {i + 1}: {questions[i]}\nAnswer {i + 1}: {answers[i]}\nExpected Answer {i + 1}: {expected_answers[i]}\n\n" for i in range(
             len(questions))]
     )
     
@@ -285,7 +291,7 @@ def generate_feedback(unit_code: str, session: str, assignment:str, questions: L
         max_tokens=2048,
         system=feedback_prompt,
         messages=[
-            {"role": "user", "content": f"CONTEXT: \n Assessment Brief: {brief_text} \n Assessment Rubric: {rubric_text} \n\n Questions and Answers:\n{qa_text}"},
+            {"role": "user", "content": f"CONVERSATION: \n\n{qa_text}"},
         ],
     ).content[0].text.strip()
     return response

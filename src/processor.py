@@ -116,7 +116,7 @@ def _process_single_file(file_bytes: bytes, blob_name: str, collection):
     text_content = decode_file_content(blob_name, file_bytes)
 
     if not text_content:
-        raise ValueError(f"File {blob_name} was empty or could not be decoded.")
+        raise ValueError(f"File was empty or could not be decoded.")
 
     # 3. Store
     store_document(collection, metadata, text_content, blob_name)

@@ -90,20 +90,21 @@ def generate_iviva_feedback(req: func.HttpRequest) -> func.HttpResponse:
     
     try: 
         req_body = req.get_json()
-        unit_code = req_body.get('unit_code')
-        session_year = req_body.get('session_year')
-        assignment = req_body.get('assignment')
         questions = req_body.get('questions')
         answers = req_body.get('answers')
+        expected_answers = req_body.get('expectedAnswers')  
+        
+        if len(questions) != len(answers) or len(questions) != len(expected_answers):
+            raise ValueError("The length of questions, answers, and expectedAnswers must be the same.")
         
     except ValueError: 
         return func.HttpResponse(
-            "Invalid request body. Please provide JSON with unit_code, session_year, assignment, questions, and answers.",
+            "Invalid request body. Please provide JSON with questions, answers, and expectedAnswers.",
             status_code=400
         )
         
     try:
-        feedback = generate_feedback(unit_code, session_year, assignment, questions, answers)
+        feedback = generate_feedback(questions, answers, expected_answers)
         return func.HttpResponse(
             json.dumps({"feedback": feedback}),
             mimetype="application/json",
@@ -369,16 +370,16 @@ def _get_or_create_question_set(
     session_year: str,
     staff_id: str | None = None,
 ) -> str:
-    name = f"{unit_code}_{assignment}_{session_year}"
+    db_name = f"{unit_code}_{assignment}_{session_year}"
     # Serialize get/create per logical set key to prevent duplicate rows under concurrent queue workers.
     lock_key = f"{unit_code}|{assignment}|{session_year}"
     cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (lock_key,))
 
     cur.execute(
         'SELECT "questionSetId", "staffId" FROM "PersonalisedQuestionSets" '
-        'WHERE "unitCode" = %s AND "assessmentName" = %s AND "name" = %s '
+        'WHERE "name" = %s'
         'ORDER BY "createdAt" DESC LIMIT 1',
-        (unit_code, assignment, name),
+        (db_name),
     )
     row = cur.fetchone()
     if row:
@@ -390,21 +391,31 @@ def _get_or_create_question_set(
             )
         return question_set_id
 
+    def _format_display(value: str) -> str:
+        return re.sub(r"[\s_-]+", " ", (value or "").strip()).title()
+
     question_set_id = str(uuid.uuid4())
     if staff_id:
         cur.execute(
             'INSERT INTO "PersonalisedQuestionSets" '
-            '("questionSetId", "name", "unitCode", "assessmentName", "staffId") '
-            'VALUES (%s, %s, %s, %s, %s) RETURNING "questionSetId"',
-            (question_set_id, name, unit_code, assignment, staff_id),
+            '("questionSetId", "name", "unitCode", "assessmentName", "staffId", "sessionYear") '
+            'VALUES (%s, %s, %s, %s, %s, %s) RETURNING "questionSetId"',
+            (question_set_id,
+             db_name, 
+             unit_code.upper(),
+             _format_display(assignment), 
+             staff_id, 
+             _format_display(session_year)),
         )
         return cur.fetchone()[0]
+    
+    # Unlikely case?
     else:
         cur.execute(
             'INSERT INTO "PersonalisedQuestionSets" '
-            '("questionSetId", "name", "unitCode", "assessmentName") '
-            'VALUES (%s, %s, %s, %s) RETURNING "questionSetId"',
-            (question_set_id, name, unit_code, assignment),
+            '("questionSetId", "name", "unitCode", "assessmentName", "sessionYear") '
+            'VALUES (%s, %s, %s, %s, %s) RETURNING "questionSetId"',
+            (question_set_id, db_name, unit_code.upper(), _format_display(assignment), _format_display(session_year)),
         )
     return cur.fetchone()[0]
 
