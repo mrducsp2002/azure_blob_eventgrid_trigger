@@ -129,7 +129,7 @@ def generate_questions_logic(student_id, unit_code, session, assignment=None, as
         )
 
     response = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5",
         max_tokens=2048,
         system=system_prompt,
         messages=[
