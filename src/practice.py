@@ -36,7 +36,7 @@ GRADING_SYSTEM_PROMPT = (
 )
 
 _client = AnthropicFoundry(
-    api_key=os.getenv("CLAUDE_API_KEY"),
+    api_key=os.getenv("CLAUDE_API_KEY_HAIKU"),
     base_url=os.getenv("CLAUDE_ENDPOINT"),
 )
 _GRADE_RETRIES = max(1, int(os.getenv("GRADE_RETRIES", "2")))

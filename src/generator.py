@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Initialize Anthropic Claude
 client = AnthropicFoundry(
-    api_key=os.getenv("CLAUDE_API_KEY"),
+    api_key=os.getenv("CLAUDE_API_KEY_HAIKU"),
     base_url=os.getenv("CLAUDE_ENDPOINT"),
 )
 
