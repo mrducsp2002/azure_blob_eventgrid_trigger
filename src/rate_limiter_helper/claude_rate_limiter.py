@@ -7,7 +7,7 @@ from azure.data.tables import TableServiceClient, UpdateMode
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
 
 _DEFAULT_TOKENS_PER_MIN = "350000"
-_DEFAULT_TABLE_NAME = "claude-token-bucket"
+_DEFAULT_TABLE_NAME = "claudetokenbucket"
 _DEFAULT_BUCKET_KEY = "claude"
 
 _TOKEN_TABLE_CLIENT = None
