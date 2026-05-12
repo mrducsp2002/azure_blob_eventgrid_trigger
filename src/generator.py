@@ -5,6 +5,9 @@ import re
 from anthropic import AnthropicFoundry
 from src.database import get_student_assignment, get_staff_document
 from typing import Any, Dict, List, Optional, Tuple
+from dotenv import load_dotenv
+
+load_dotenv()  # Load environment variables from .env file if present
 
 # Initialize Anthropic Claude
 client = AnthropicFoundry(

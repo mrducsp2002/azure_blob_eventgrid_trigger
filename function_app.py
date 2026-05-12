@@ -488,14 +488,12 @@ def _reset_question_set_for_submission(
                 assignment=assignment,
                 session_year=session_year,
             )
-            #TODO: Consider whether we want to delete all questions for the set, add a button in the frontend ?
-            #IMPORTANT
+
             cur.execute(
                 'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s',
                 (question_set_id,),
             )
-            timestamp = datetime.now(ZoneInfo("Australia/Sydney")).strftime("%Y-%m-%dT%H:%M:%S")
-            divider = f"------- New batch [{timestamp}] -------"
+
             # Reset to the "bulk-gen pending" sentinel (0), NOT NULL.
             # The Next.js create action pre-seeds expectedStudentCount = 0
             # for STAFF (PQ-gen) sets so the dashboard badge renders
