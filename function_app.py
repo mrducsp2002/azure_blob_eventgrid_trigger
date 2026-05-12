@@ -493,6 +493,10 @@ def _reset_question_set_for_submission(
                 'DELETE FROM "PersonalisedQuestions" WHERE "questionSetId" = %s',
                 (question_set_id,),
             )
+            
+            timestamp = datetime.now(
+                ZoneInfo("Australia/Sydney")).strftime("%Y-%m-%dT%H:%M:%S")
+            divider = f"------- New batch [{timestamp}] -------"
 
             # Reset to the "bulk-gen pending" sentinel (0), NOT NULL.
             # The Next.js create action pre-seeds expectedStudentCount = 0
