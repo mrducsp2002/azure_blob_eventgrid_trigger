@@ -480,9 +480,18 @@ def _reset_question_set_for_submission(
             )
             timestamp = datetime.now(ZoneInfo("Australia/Sydney")).strftime("%Y-%m-%dT%H:%M:%S")
             divider = f"------- New batch [{timestamp}] -------"
+            # Reset to the "bulk-gen pending" sentinel (0), NOT NULL.
+            # The Next.js create action pre-seeds expectedStudentCount = 0
+            # for STAFF (PQ-gen) sets so the dashboard badge renders
+            # Processing during the T0 window between form submit and the
+            # blob trigger firing. NULLing it here would re-open that
+            # window every time a new submission ZIP lands — the dashboard
+            # would flash Ready until _set_question_set_processing_status
+            # writes the real count below. Keep it at 0 so the badge stays
+            # Processing throughout the reset -> re-enumerate sequence.
             cur.execute(
                 'UPDATE "PersonalisedQuestionSets" '
-                'SET "status" = %s, "expectedStudentCount" = NULL, '
+                'SET "status" = %s, "expectedStudentCount" = 0, '
                 '"processedStudentCount" = 0, '
                 '"errorMessage" = CASE '
                 'WHEN "errorMessage" IS NULL OR "errorMessage" = %s THEN "errorMessage" '
