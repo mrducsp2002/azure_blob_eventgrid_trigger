@@ -9,3 +9,4 @@ azure-storage-blob
 azure-servicebus
 psycopg2-binary
 anthropic
+azure-data-tables

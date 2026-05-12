@@ -16,8 +16,20 @@ from src.database import (
     store_generated_questions,
 )
 from src.processor import process_blob_stream, extract_batch_metadata
-from src.generator import generate_questions_logic, regenerate_questions_logic, generate_feedback
+from src.generator import (
+    build_question_generation_request,
+    estimate_tokens_from_prompts,
+    generate_questions_from_prompts,
+    generate_questions_logic,
+    regenerate_questions_logic,
+    generate_feedback,
+)
 from src.practice import handle_viva_message, start_viva_session
+from src.rate_limiter_helper import (
+    get_tokens_per_min,
+    reschedule_service_bus_message,
+    try_consume_tokens,
+)
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
 from datetime import datetime, timedelta, timezone
@@ -27,6 +39,8 @@ app = func.FunctionApp()
 _QUESTION_QUEUE_NAME = "iviva-question-generation"
 _QUEUE_READY_RETRIES = max(1, int(os.environ.get("QUEUE_READY_RETRIES", "3")))
 _QUEUE_READY_DELAY_SEC = max(0.0, float(os.environ.get("QUEUE_READY_DELAY_SEC", "2")))
+_CLAUDE_TOKENS_PER_MIN = get_tokens_per_min()
+_DEFAULT_JOB_TOKEN_ESTIMATE = max(1, int(os.environ.get("DEFAULT_JOB_TOKEN_ESTIMATE", "8000")))
 
 
 def _normalize_assignment(value: str) -> str:
@@ -41,6 +55,8 @@ def _normalize_meta(value: str) -> str:
 def _normalize_session(value: str) -> str:
     # Keep session metadata aligned across seed payloads and blob-name extraction.
     return re.sub(r"[\s_]+", "-", (value or "").strip().lower())
+
+
 
 # ==========================================
 #  1A. HTTP API: Question Generation and Regeneration
@@ -824,6 +840,8 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
         raise
 
     enqueued = 0
+    cumulative_tokens = 0
+    now = datetime.now(timezone.utc)
     with ServiceBusClient.from_connection_string(connection_string) as client:
         with client.get_queue_sender(_QUESTION_QUEUE_NAME) as sender:
             for submission_index, student_id in enumerate(student_ids, start=1):
@@ -839,8 +857,16 @@ def _enqueue_generation_jobs(unit_code: str, assignment: str, session_year: str)
                     "question_set_id": question_set_id,
                     "expected_submission_count": expected_submission_count,
                     "submission_index": submission_index,
+                    "estimated_tokens": _DEFAULT_JOB_TOKEN_ESTIMATE,
                 }
-                sender.send_messages(ServiceBusMessage(json.dumps(payload)))
+                cumulative_tokens += _DEFAULT_JOB_TOKEN_ESTIMATE
+                delay_seconds = int((cumulative_tokens / _CLAUDE_TOKENS_PER_MIN) * 60)
+                message = ServiceBusMessage(json.dumps(payload))
+                if delay_seconds > 0:
+                    scheduled_time = now + timedelta(seconds=delay_seconds)
+                    sender.schedule_messages(message, scheduled_time)
+                else:
+                    sender.send_messages(message)
                 enqueued += 1
 
     logging.info(
@@ -974,11 +1000,38 @@ def question_generation_queue(msg: func.ServiceBusMessage):
         logging.info("Question generation processing student_id=%s.", student_id)
 
     try:
-        result = generate_questions_logic(
+        system_prompt, user_message_content, seed_count = build_question_generation_request(
             student_id=student_id,
             unit_code=unit_code,
             session=session_year,
             assignment=assignment,
+        )
+        estimated_tokens = estimate_tokens_from_prompts(system_prompt, user_message_content)
+        allowed, remaining, reset_in = try_consume_tokens(estimated_tokens)
+        if not allowed:
+            payload["estimated_tokens"] = estimated_tokens
+            payload["rate_limit_retry"] = int(payload.get("rate_limit_retry", 0)) + 1
+            logging.info(
+                "Claude rate limit hit: estimated_tokens=%d remaining=%d reset_in=%ds; rescheduling.",
+                estimated_tokens,
+                remaining,
+                reset_in,
+            )
+            reschedule_service_bus_message(payload, reset_in, _QUESTION_QUEUE_NAME)
+            return
+
+        logging.info(
+            "Claude token budget ok: estimated_tokens=%d remaining=%d reset_in=%ds",
+            estimated_tokens,
+            remaining,
+            reset_in,
+        )
+
+        result = generate_questions_from_prompts(
+            student_id=student_id,
+            system_prompt=system_prompt,
+            user_message_content=user_message_content,
+            seed_count=seed_count,
         )
         questions = result.get("questions", [])
         reference = result.get("reference", [])

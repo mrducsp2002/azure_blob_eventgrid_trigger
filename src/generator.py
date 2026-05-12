@@ -12,11 +12,36 @@ client = AnthropicFoundry(
     base_url=os.getenv("CLAUDE_ENDPOINT"),
 )
 
+_DEFAULT_MAX_TOKENS = max(1, int(os.getenv("CLAUDE_MAX_TOKENS", "2048")))
+_CHARS_PER_TOKEN = max(1, int(os.getenv("CLAUDE_TOKEN_ESTIMATE_CHAR_RATIO", "4")))
+
 def generate_questions_logic(student_id, unit_code, session, assignment=None, assignment_text=None):
     """
     Orchestrates the data fetching and AI generation.
     Returns: A dictionary (JSON) of questions or Raises an Exception.
     """
+    system_prompt, user_message_content, seed_count = build_question_generation_request(
+        student_id=student_id,
+        unit_code=unit_code,
+        session=session,
+        assignment=assignment,
+        assignment_text=assignment_text,
+    )
+    return generate_questions_from_prompts(
+        student_id=student_id,
+        system_prompt=system_prompt,
+        user_message_content=user_message_content,
+        seed_count=seed_count,
+    )
+
+
+def build_question_generation_request(
+    student_id: str,
+    unit_code: str,
+    session: str,
+    assignment: Optional[str] = None,
+    assignment_text: Optional[str] = None,
+) -> Tuple[str, str, int]:
     # 1. Fetch Document
     docs = {
         "Assessment Brief": get_staff_document(
@@ -73,7 +98,7 @@ def generate_questions_logic(student_id, unit_code, session, assignment=None, as
     if not seed_questions:
         raise ValueError("Seed questions document is empty.")
 
-    # 3. Call AI
+    # Build prompt
     system_prompt = f"""
         You are an expert academic examiner. Generate tailored Viva Voce questions for a student based on their specific assignment content.
 
@@ -99,7 +124,6 @@ def generate_questions_logic(student_id, unit_code, session, assignment=None, as
         }}
         """
 
-    # Build user message for request
     user_message_content = f"""
                 CONTEXT:
                 Assessment brief: {brief_text}
@@ -111,13 +135,22 @@ def generate_questions_logic(student_id, unit_code, session, assignment=None, as
                 Now generate {len(seed_questions)} personalized questions given the context above and follow the seed questions structure.
             """
 
+    return system_prompt, user_message_content, len(seed_questions)
+
+
+def generate_questions_from_prompts(
+    student_id: str,
+    system_prompt: str,
+    user_message_content: str,
+    seed_count: int,
+) -> Dict[str, Any]:
     # Log Claude request metadata (production-safe)
     logging.info(
         "Claude request - student_id=%s model=claude-sonnet-4-6 system_prompt_chars=%d user_message_chars=%d seed_count=%d",
         student_id,
         len(system_prompt),
         len(user_message_content),
-        len(seed_questions),
+        seed_count,
     )
 
     # Debug: log full messages if environment variable enabled
@@ -130,7 +163,7 @@ def generate_questions_logic(student_id, unit_code, session, assignment=None, as
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2048,
+        max_tokens=_DEFAULT_MAX_TOKENS,
         system=system_prompt,
         messages=[
             {"role": "user", "content": user_message_content}
@@ -139,6 +172,17 @@ def generate_questions_logic(student_id, unit_code, session, assignment=None, as
 
     # Return the parsed JSON object directly
     return _parse_json_response(response.content[0].text, ["student_id", "questions", "reference"])
+
+
+def estimate_tokens_from_prompts(
+    system_prompt: str,
+    user_message_content: str,
+    max_output_tokens: Optional[int] = None,
+) -> int:
+    output_tokens = max_output_tokens or _DEFAULT_MAX_TOKENS
+    input_chars = len(system_prompt) + len(user_message_content)
+    input_tokens = max(1, int(input_chars / _CHARS_PER_TOKEN))
+    return input_tokens + output_tokens
 
 
 def _parse_json_response(raw_text: str, required_keys: List[str]) -> Dict[str, Any]:
