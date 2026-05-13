@@ -322,6 +322,7 @@ def generate_feedback(questions: List[str], answers: List[str], expected_answers
         
         Output:\n\n
         ### FEEDBACK\n
+        ### SUMMARY (1 sentence)\n
         - Q1: Feedback for question 1
         - Q2: Feedback for question 2
         and so on...
