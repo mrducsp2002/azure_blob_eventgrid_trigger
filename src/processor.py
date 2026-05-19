@@ -14,13 +14,10 @@ def extract_batch_metadata(blob_name: str) -> dict:
     parts = clean_name.split('_')
 
     if len(parts) < 3:
-        logging.warning(
-            f"Blob name '{blob_name}' invalid format. Using defaults.")
-        return {
-            'unit_code': 'unknown_unit',
-            'assignment': 'unknown_ass',
-            'session_year': 'unknown_year'
-        }
+        logging.error(
+            f"Blob name '{blob_name}' invalid format. Raising error.")
+        raise ValueError(
+            f"Invalid blob name format: '{blob_name}'. Cannot parse metadata without valid format.")
 
     return {
         'unit_code': parts[0].strip().lower(),
