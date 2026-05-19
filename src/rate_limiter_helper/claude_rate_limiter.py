@@ -6,7 +6,7 @@ from azure.core.exceptions import HttpResponseError, ResourceExistsError, Resour
 from azure.data.tables import TableServiceClient, UpdateMode
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
 
-_DEFAULT_TOKENS_PER_MIN = "140000"
+_DEFAULT_TOKENS_PER_MIN = "350000"
 _DEFAULT_TABLE_NAME = "claudetokenbucket"
 _DEFAULT_BUCKET_KEY = "claude"
 
