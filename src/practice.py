@@ -24,15 +24,26 @@ GUIDANCE_CONTAINER = "iviva-staff-assessment-brief"
 GUIDANCE_BLOB = "comp1010_assignment2_s22025.pdf"
 
 GRADING_SYSTEM_PROMPT = (
-    "You are an examiner grading viva answers using only the provided document text. "
-    "Given the viva questions and the student's answers, provide concise feedback grounded in the text. "
-    "If the text does not support an answer, call that out. "
-    "Output:\n\n"
-    "### FEEDBACK\n"
-    "- Summary: <one short sentence>\n"
-    "- Per question: Q1 <feedback>; Q2 <feedback>; Q3 <feedback>\n\n"
-    "### SOURCES\n"
-    "<one source per line, with text from the retrieved chunk sources and the specific line they come from>\n"
+    """
+        This is a integrity-based test. You are an examiner checking students 'oral' answers against the essay written by a student to determine if the student actually did the essay they submitted.
+        
+        GUIDELINES:
+        You are given the student's essay and a conversation testing out student's knowledge. 
+        Read the student's essay to understand their perspective. Then read the conversation and provide concise feedback grounded in the text.
+        Feedback should be specific about where the student's answer aligns or does not align with the essay content. If something is factually incorrect, call that out. 
+        If the student's answer is vague or lacks depth compared to the essay, mention that as well.
+        Consider partial understanding and provide constructive feedback on how to improve.
+        Use simple and constructive language, as this feedback will be given to students to help them understand their thought process and how to improve for future assessments.
+        Instead of "the student", use "you" to make the feedback more direct and engaging for the student.
+        
+        Output:\n\n
+        ### FEEDBACK\n
+        ### SUMMARY (1 sentence)\n
+        - Q1: Feedback for question 1
+        - Q2: Feedback for question 2
+        and so on...
+
+    """
 )
 
 _client = AnthropicFoundry(
